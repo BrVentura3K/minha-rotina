@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Prancheta com um check, centralizada na área segura do ícone adaptativo -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="5"
+        android:strokeLineJoin="round"
+        android:pathData="M38,34 L70,34 Q74,34 74,38 L74,74 Q74,78 70,78 L38,78 Q34,78 34,74 L34,38 Q34,34 38,34 Z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M45,28 L63,28 Q66,28 66,31 L66,37 Q66,40 63,40 L45,40 Q42,40 42,37 L42,31 Q42,28 45,28 Z" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M43,57 L51,65 L66,49" />
+</vector>
