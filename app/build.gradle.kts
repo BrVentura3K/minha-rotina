@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -12,15 +14,40 @@ android {
         applicationId = "br.com.minharotina"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1"
     }
 
+    // Chave fixa: todas as versões precisam ser assinadas com ela para
+    // atualizar por cima e bater com o registro no Android Developer Console.
+    // Na compilação do GitHub ela vem dos Secrets do repositório; no PC, de
+    // um keystore.properties local (fora do git).
+    val chave = Properties().apply {
+        val local = rootProject.file("app/keystore.properties")
+        if (local.exists()) local.inputStream().use { load(it) }
+    }
+    fun valor(prop: String, env: String): String? = System.getenv(env) ?: chave.getProperty(prop)
+    val arquivoChave = valor("storeFile", "MR_KEYSTORE_FILE")
+
+    signingConfigs {
+        create("fixa") {
+            if (arquivoChave != null) {
+                storeFile = file(arquivoChave)
+                storePassword = valor("storePassword", "MR_KEYSTORE_PASSWORD")
+                keyAlias = valor("keyAlias", "MR_KEY_ALIAS") ?: "minharotina"
+                keyPassword = valor("keyPassword", "MR_KEYSTORE_PASSWORD")
+            }
+        }
+    }
+    val assinatura = if (arquivoChave != null) signingConfigs.getByName("fixa") else signingConfigs.getByName("debug")
+
     buildTypes {
+        debug {
+            signingConfig = assinatura
+        }
         release {
             isMinifyEnabled = false
-            // Assinado com a chave de debug para facilitar a instalação manual.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = assinatura
         }
     }
 

@@ -18,7 +18,16 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
 
       - name: Compilar
+        env:
+          MR_KEYSTORE_BASE64: ${{ secrets.MR_KEYSTORE_BASE64 }}
+          MR_KEYSTORE_PASSWORD: ${{ secrets.MR_KEYSTORE_PASSWORD }}
         run: |
+          if [ -z "$MR_KEYSTORE_BASE64" ]; then
+            echo "::error::Secret MR_KEYSTORE_BASE64 ausente. Sem ele o APK não atualiza o app instalado."
+            exit 1
+          fi
+          echo "$MR_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/minharotina.jks"
+          export MR_KEYSTORE_FILE="$RUNNER_TEMP/minharotina.jks"
           chmod +x gradlew
           ./gradlew assembleDebug
 

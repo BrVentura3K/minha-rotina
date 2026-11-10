@@ -6,3 +6,7 @@ local.properties
 .DS_Store
 captures/
 .kotlin/
+
+# Chave de assinatura: nunca no repositório
+*.jks
+keystore.properties
