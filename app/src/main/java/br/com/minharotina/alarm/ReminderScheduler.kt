@@ -23,6 +23,7 @@ object ReminderScheduler {
     const val ACTION_REMINDER = "br.com.minharotina.REMINDER"
     const val EXTRA_TASK_ID = "taskId"
     const val EXTRA_TITLE = "title"
+    const val EXTRA_QUOTE = "quote"
 
     fun canScheduleExact(context: Context): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return true
@@ -72,22 +73,54 @@ object ReminderScheduler {
         }
 
     private fun schedule(context: Context, taskId: String, title: String, at: LocalDateTime) {
-        val am = context.getSystemService(AlarmManager::class.java)
         val pi = PendingIntent.getBroadcast(
             context, 0, intentFor(context, taskId, title),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        val trigger = at.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+        setAlarm(context, at.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli(), pi)
+    }
+
+    private fun setAlarm(context: Context, triggerAtMillis: Long, pi: PendingIntent) {
+        val am = context.getSystemService(AlarmManager::class.java)
         try {
             if (canScheduleExact(context)) {
-                am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, trigger, pi)
+                am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pi)
             } else {
-                am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, trigger, pi)
+                am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pi)
             }
         } catch (e: SecurityException) {
             Log.w("ReminderScheduler", "Sem permissão de alarme exato", e)
-            am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, trigger, pi)
+            am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pi)
         }
+    }
+
+    /** "Adiar": toca de novo daqui a [minutos], sem mexer no alarme normal da tarefa. */
+    fun snooze(context: Context, taskId: String, title: String, minutos: Int) {
+        val intent = Intent(context, AlarmReceiver::class.java).apply {
+            action = ACTION_REMINDER
+            data = Uri.parse("rotina://adiada/$taskId")
+            putExtra(EXTRA_TASK_ID, taskId)
+            putExtra(EXTRA_TITLE, title)
+        }
+        val pi = PendingIntent.getBroadcast(
+            context, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        setAlarm(context, System.currentTimeMillis() + minutos * 60_000L, pi)
+    }
+
+    /** Depois de alguns minutos tocando sem resposta, o alarme vira notificação silenciosa. */
+    fun scheduleSilence(context: Context, taskId: String, title: String, quote: String, depoisMs: Long) {
+        val intent = Intent(context, SilenceReceiver::class.java).apply {
+            data = Uri.parse("rotina://silenciar/$taskId")
+            putExtra(EXTRA_TASK_ID, taskId)
+            putExtra(EXTRA_TITLE, title)
+            putExtra(EXTRA_QUOTE, quote)
+        }
+        val pi = PendingIntent.getBroadcast(
+            context, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val am = context.getSystemService(AlarmManager::class.java)
+        am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + depoisMs, pi)
     }
 
     fun cancel(context: Context, taskId: String) {

@@ -20,7 +20,10 @@ class AlarmReceiver : BroadcastReceiver() {
         // Só avisa se a tarefa é de hoje e ainda não foi feita.
         if (entry != null && !entry.done) {
             val title = entry.title.ifBlank { intent.getStringExtra(ReminderScheduler.EXTRA_TITLE) ?: "Tarefa" }
-            Notifications.showReminder(context, taskId, title, Quotes.ofDay(today, data.customQuotes))
+            val quote = Quotes.ofDay(today, data.customQuotes)
+            Notifications.showReminder(context, taskId, title, quote, tocar = true)
+            // Para de tocar sozinho se ninguém responder.
+            ReminderScheduler.scheduleSilence(context, taskId, title, quote, Notifications.TEMPO_TOCANDO_MS)
         }
         // Agenda a próxima ocorrência.
         repo.persistNow()
@@ -44,5 +47,29 @@ class BootReceiver : BroadcastReceiver() {
         val repo = RotinaApp.repo(context)
         repo.refreshDay()
         repo.persistNow()
+    }
+}
+
+/** Botão "Adiar 10 min": para o alarme e toca de novo daqui a 10 minutos. */
+class SnoozeActionReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        val taskId = intent.getStringExtra(ReminderScheduler.EXTRA_TASK_ID) ?: return
+        val title = intent.getStringExtra(ReminderScheduler.EXTRA_TITLE) ?: "Tarefa"
+        Notifications.dismiss(context, taskId)
+        ReminderScheduler.snooze(context, taskId, title, 10)
+    }
+}
+
+/** Depois do tempo máximo tocando, troca o alarme por uma notificação silenciosa. */
+class SilenceReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        val taskId = intent.getStringExtra(ReminderScheduler.EXTRA_TASK_ID) ?: return
+        if (!Notifications.isShowing(context, taskId)) return
+        Notifications.showReminder(
+            context, taskId,
+            intent.getStringExtra(ReminderScheduler.EXTRA_TITLE) ?: "Tarefa",
+            intent.getStringExtra(ReminderScheduler.EXTRA_QUOTE) ?: "",
+            tocar = false,
+        )
     }
 }

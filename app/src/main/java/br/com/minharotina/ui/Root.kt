@@ -209,7 +209,11 @@ fun AvisoLembretes(resumeTick: Int) {
     val bateria = remember(resumeTick) {
         context.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(context.packageName)
     }
-    if (notificacoes && exatos && bateria) return
+    val telaCheia = remember(resumeTick) {
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE ||
+            context.getSystemService(android.app.NotificationManager::class.java).canUseFullScreenIntent()
+    }
+    if (notificacoes && exatos && bateria && telaCheia) return
 
     Surface(shape = RoundedCornerShape(16.dp), color = Cores.TerracotaClaro, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -226,6 +230,11 @@ fun AvisoLembretes(resumeTick: Int) {
             if (!exatos && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 BotaoConfig("Permitir alarmes no horário exato") {
                     abrir(context, Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:${context.packageName}")))
+                }
+            }
+            if (!telaCheia && Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                BotaoConfig("Permitir alarme em tela cheia") {
+                    abrir(context, Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, Uri.parse("package:${context.packageName}")))
                 }
             }
             if (!bateria) {
