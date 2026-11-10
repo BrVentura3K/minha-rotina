@@ -40,10 +40,11 @@ import androidx.compose.ui.unit.sp
 import br.com.minharotina.data.AppData
 import br.com.minharotina.data.Repository
 import br.com.minharotina.quotes.Quotes
+import br.com.minharotina.update.Updater
 import java.time.LocalDate
 
 @Composable
-fun QuotesScreen(data: AppData, hoje: LocalDate, repo: Repository) {
+fun QuotesScreen(data: AppData, hoje: LocalDate, repo: Repository, onVerificarAtualizacao: () -> Unit) {
     var aba by rememberSaveable { mutableIntStateOf(0) }
     var nova by rememberSaveable { mutableStateOf("") }
     val fraseHoje = Quotes.ofDay(hoje, data.customQuotes)
@@ -153,6 +154,18 @@ fun QuotesScreen(data: AppData, hoje: LocalDate, repo: Repository) {
                             tint = if (fav) Cores.Terracota else Cores.Suave,
                         )
                     }
+                }
+            }
+        }
+
+        item {
+            Column(
+                Modifier.fillMaxWidth().padding(top = 24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text("Versão ${Updater.versaoAtual}", fontSize = 12.sp, color = Cores.Suave)
+                androidx.compose.material3.TextButton(onClick = onVerificarAtualizacao) {
+                    Text("Verificar atualização", color = Cores.Verde, fontWeight = FontWeight.Bold)
                 }
             }
         }

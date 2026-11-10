@@ -43,7 +43,13 @@ import br.com.minharotina.quotes.Quotes
 import java.time.LocalDate
 
 @Composable
-fun TodayScreen(data: AppData, hoje: LocalDate, repo: Repository, resumeTick: Int) {
+fun TodayScreen(
+    data: AppData,
+    hoje: LocalDate,
+    repo: Repository,
+    resumeTick: Int,
+    avisoAtualizacao: @Composable () -> Unit = {},
+) {
     val registro = data.record(hoje)
     val entradas = registro?.entries.orEmpty().sortedBy { it.sortKey }
     val feitas = entradas.count { it.done }
@@ -69,6 +75,8 @@ fun TodayScreen(data: AppData, hoje: LocalDate, repo: Repository, resumeTick: In
                 }
             }
         }
+
+        item { avisoAtualizacao() }
 
         item { AvisoLembretes(resumeTick) }
 

@@ -14,8 +14,10 @@ android {
         applicationId = "io.github.brventura3k.rotina"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.1"
+        // No GitHub, o número da compilação vira a versão (e a tag "v<n>" da Release).
+        val numero = System.getenv("MR_VERSION_CODE")?.toIntOrNull() ?: 2
+        versionCode = numero
+        versionName = "1.$numero"
     }
 
     // Chave fixa: todas as versões precisam ser assinadas com ela para
@@ -62,6 +64,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 

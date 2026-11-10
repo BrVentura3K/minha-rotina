@@ -37,8 +37,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -53,7 +55,10 @@ import androidx.core.content.ContextCompat
 import br.com.minharotina.alarm.ReminderScheduler
 import br.com.minharotina.data.Repository
 import br.com.minharotina.data.RoutineTask
+import android.widget.Toast
+import br.com.minharotina.update.Updater
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.time.LocalDate
 
 enum class Aba(val rotulo: String, val icone: ImageVector) {
@@ -99,6 +104,51 @@ fun RotinaRoot(repo: Repository, resumeTick: Int) {
         }
     }
 
+    // Atualização do app: confere ao abrir (no máximo a cada 30 min).
+    val scope = rememberCoroutineScope()
+    var atualizacao by remember { mutableStateOf<Updater.Release?>(null) }
+    var progresso by remember { mutableStateOf<Float?>(null) }
+    var ultimaChecagem by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(resumeTick) {
+        val agora = System.currentTimeMillis()
+        if (agora - ultimaChecagem > 30 * 60_000L) {
+            ultimaChecagem = agora
+            Updater.latest()?.let { r -> atualizacao = r.takeIf { Updater.isNewer(it) } }
+        }
+    }
+    val atualizar: () -> Unit = {
+        val r = atualizacao
+        if (r != null && progresso == null) {
+            if (!Updater.canInstall(context)) {
+                Toast.makeText(context, "Ative \"Permitir desta fonte\" e toque em Atualizar de novo.", Toast.LENGTH_LONG).show()
+                Updater.openInstallPermission(context)
+            } else {
+                scope.launch {
+                    progresso = 0f
+                    try {
+                        Updater.install(context, r) { progresso = it }
+                    } catch (e: Exception) {
+                        Toast.makeText(context, "Não foi possível baixar a atualização. Tente de novo.", Toast.LENGTH_LONG).show()
+                    } finally {
+                        progresso = null
+                    }
+                }
+            }
+        }
+    }
+    val verificarAgora: () -> Unit = {
+        scope.launch {
+            ultimaChecagem = System.currentTimeMillis()
+            val r = Updater.latest()
+            val msg = when {
+                r == null -> "Não foi possível verificar agora. Confira a internet."
+                Updater.isNewer(r) -> { atualizacao = r; aba = Aba.HOJE; "Tem versão nova! Toque em Atualizar." }
+                else -> "Você já está na versão mais recente."
+            }
+            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+        }
+    }
+
     Scaffold(
         containerColor = Cores.Fundo,
         bottomBar = {
@@ -135,10 +185,12 @@ fun RotinaRoot(repo: Repository, resumeTick: Int) {
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
             when (aba) {
-                Aba.HOJE -> TodayScreen(data = data, hoje = hoje, repo = repo, resumeTick = resumeTick)
+                Aba.HOJE -> TodayScreen(data = data, hoje = hoje, repo = repo, resumeTick = resumeTick) {
+                    atualizacao?.let { CartaoAtualizacao(it, progresso, atualizar) }
+                }
                 Aba.ROTINAS -> RoutinesScreen(tasks = data.tasks, onEditar = { folha = Folha.Editar(it) })
                 Aba.HISTORICO -> HistoryScreen(data = data, hoje = hoje)
-                Aba.FRASES -> QuotesScreen(data = data, hoje = hoje, repo = repo)
+                Aba.FRASES -> QuotesScreen(data = data, hoje = hoje, repo = repo, onVerificarAtualizacao = verificarAgora)
             }
         }
     }
@@ -199,5 +251,31 @@ private fun abrir(context: Context, intent: Intent) {
         context.startActivity(
             Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}")),
         )
+    }
+}
+
+@Composable
+private fun CartaoAtualizacao(release: Updater.Release, progresso: Float?, onAtualizar: () -> Unit) {
+    Surface(shape = RoundedCornerShape(16.dp), color = Cores.Verde, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Nova versão disponível", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, color = Color.White)
+            if (release.notes.isNotBlank()) {
+                Text(release.notes, fontSize = 13.sp, color = Color.White.copy(alpha = 0.9f), maxLines = 4)
+            }
+            if (progresso != null) {
+                Text("Baixando… ${(progresso * 100).toInt()}%", fontSize = 13.sp, color = Color.White)
+                BarraProgresso(progresso, cor = Color.White, trilho = Color.White.copy(alpha = 0.3f))
+            } else {
+                androidx.compose.material3.Button(
+                    onClick = onAtualizar,
+                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                        containerColor = Color.White, contentColor = Cores.Verde,
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Atualizar", fontWeight = FontWeight.ExtraBold)
+                }
+            }
+        }
     }
 }
