@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -67,6 +68,7 @@ enum class Aba(val rotulo: String, val icone: ImageVector) {
     ROTINAS("Rotinas", Icons.Default.Refresh),
     HISTORICO("Histórico", Icons.Default.DateRange),
     FRASES("Frases", Icons.Default.Favorite),
+    CORES("Cores", Icons.Default.Star),
 }
 
 sealed interface Folha {
@@ -203,6 +205,7 @@ fun RotinaRoot(repo: Repository, resumeTick: Int) {
                 Aba.ROTINAS -> RoutinesScreen(tasks = data.tasks, onEditar = { folha = Folha.Editar(it) })
                 Aba.HISTORICO -> HistoryScreen(data = data, hoje = hoje)
                 Aba.FRASES -> QuotesScreen(data = data, hoje = hoje, repo = repo, onVerificarAtualizacao = verificarAgora)
+                Aba.CORES -> ColorsScreen()
             }
         }
     }

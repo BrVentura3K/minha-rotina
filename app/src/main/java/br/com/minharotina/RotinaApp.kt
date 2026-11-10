@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import br.com.minharotina.alarm.Notifications
 import br.com.minharotina.data.Repository
+import br.com.minharotina.ui.Cores
 
 class RotinaApp : Application() {
 
@@ -12,6 +13,7 @@ class RotinaApp : Application() {
     override fun onCreate() {
         super.onCreate()
         Notifications.createChannel(this)
+        Cores.carregar(this)
     }
 
     companion object {
