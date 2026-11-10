@@ -1,7 +1,10 @@
 package br.com.minharotina.ui
 
 import android.app.TimePickerDialog
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -17,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -44,6 +48,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import br.com.minharotina.data.Repository
@@ -55,16 +60,25 @@ import java.time.LocalDate
 fun TaskSheet(folha: Folha, repo: Repository, onDismiss: () -> Unit) {
     val context = LocalContext.current
     val editando = (folha as? Folha.Editar)?.task
+    val avulsa = folha as? Folha.EditarAvulsa
+    val emEdicao = editando != null || avulsa != null
 
-    var titulo by rememberSaveable { mutableStateOf(editando?.title ?: "") }
+    var titulo by rememberSaveable { mutableStateOf(editando?.title ?: avulsa?.entry?.title ?: "") }
     var naRotina by rememberSaveable { mutableStateOf(editando != null || (folha as? Folha.Nova)?.naRotina == true) }
     var dias by remember { mutableStateOf(editando?.days ?: setOf(LocalDate.now().dayOfWeek.value)) }
-    var lembrete by rememberSaveable { mutableStateOf(editando?.hour != null) }
-    var hora by rememberSaveable { mutableIntStateOf(editando?.hour ?: 8) }
-    var minuto by rememberSaveable { mutableIntStateOf(editando?.minute ?: 0) }
+    val horaInicial = editando?.hour ?: avulsa?.entry?.hour
+    val minutoInicial = editando?.minute ?: avulsa?.entry?.minute
+    var lembrete by rememberSaveable { mutableStateOf(horaInicial != null) }
+    var hora by rememberSaveable { mutableIntStateOf(horaInicial ?: 8) }
+    var minuto by rememberSaveable { mutableIntStateOf(minutoInicial ?: 0) }
+    val timerInicial = editando?.timerMinutes ?: avulsa?.entry?.timerMinutes
+    var temporizador by rememberSaveable { mutableStateOf(timerInicial != null) }
+    var minutosTimer by rememberSaveable { mutableStateOf((timerInicial ?: 25).toString()) }
+    val minutosValidos = minutosTimer.toIntOrNull()?.takeIf { it in 1..600 }
     var confirmarExclusao by remember { mutableStateOf(false) }
 
-    val podeSalvar = titulo.isNotBlank() && (!naRotina || dias.isNotEmpty())
+    val podeSalvar = titulo.isNotBlank() && (!naRotina || dias.isNotEmpty()) &&
+        (!temporizador || minutosValidos != null)
 
     fun escolherHorario() {
         TimePickerDialog(context, { _, h, m ->
@@ -88,7 +102,7 @@ fun TaskSheet(folha: Folha, repo: Repository, onDismiss: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
             Text(
-                if (editando != null) "Editar tarefa" else "Nova tarefa",
+                if (emEdicao) "Editar tarefa" else "Nova tarefa",
                 fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = Cores.Tinta,
             )
 
@@ -100,7 +114,7 @@ fun TaskSheet(folha: Folha, repo: Repository, onDismiss: () -> Unit) {
                 modifier = Modifier.fillMaxWidth(),
             )
 
-            if (editando == null) {
+            if (!emEdicao) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Rotulo("Adicionar")
                     Segmentado(
@@ -150,16 +164,72 @@ fun TaskSheet(folha: Folha, repo: Repository, onDismiss: () -> Unit) {
                 }
             }
 
+            Surface(shape = RoundedCornerShape(16.dp), color = Color.White, modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Cores.Verde)
+                        Column(Modifier.weight(1f)) {
+                            Text("Temporizador", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Cores.Tinta)
+                            Text(
+                                if (temporizador) "Toca o alarme quando o tempo acabar" else "Sem temporizador",
+                                fontSize = 13.sp, color = Cores.Suave,
+                            )
+                        }
+                        Switch(
+                            checked = temporizador,
+                            onCheckedChange = { temporizador = it },
+                            colors = SwitchDefaults.colors(checkedTrackColor = Cores.Verde),
+                        )
+                    }
+                    if (temporizador) {
+                        Row(
+                            Modifier.horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            listOf(5, 10, 15, 20, 25, 30, 45, 60).forEach { m ->
+                                val ativo = minutosValidos == m
+                                Text(
+                                    "$m min",
+                                    fontSize = 13.sp,
+                                    fontWeight = if (ativo) FontWeight.ExtraBold else FontWeight.Bold,
+                                    color = if (ativo) Color.White else Cores.Suave,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(18.dp))
+                                        .background(if (ativo) Cores.Verde else Color.Transparent)
+                                        .border(1.dp, if (ativo) Cores.Verde else Cores.Borda, RoundedCornerShape(18.dp))
+                                        .clickable(role = Role.Button) { minutosTimer = m.toString() }
+                                        .padding(horizontal = 12.dp, vertical = 9.dp),
+                                )
+                            }
+                        }
+                        OutlinedTextField(
+                            value = minutosTimer,
+                            onValueChange = { v -> minutosTimer = v.filter { it.isDigit() }.take(3) },
+                            label = { Text("Minutos") },
+                            supportingText = {
+                                if (minutosValidos == null) Text("Escolha de 1 a 600 minutos")
+                            },
+                            isError = minutosValidos == null,
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+            }
+
             Button(
                 onClick = {
                     val h = if (lembrete) hora else null
                     val m = if (lembrete) minuto else null
+                    val t = if (temporizador) minutosValidos else null
                     when {
                         editando != null -> repo.updateRoutine(
-                            editando.copy(title = titulo.trim(), days = dias, hour = h, minute = m),
+                            editando.copy(title = titulo.trim(), days = dias, hour = h, minute = m, timerMinutes = t),
                         )
-                        naRotina -> repo.addRoutine(titulo, dias, h, m)
-                        else -> repo.addOneOff(titulo, h, m)
+                        avulsa != null -> repo.updateOneOff(avulsa.date, avulsa.entry.taskId, titulo, h, m, t)
+                        naRotina -> repo.addRoutine(titulo, dias, h, m, t)
+                        else -> repo.addOneOff(titulo, h, m, t)
                     }
                     onDismiss()
                 },
@@ -174,6 +244,17 @@ fun TaskSheet(folha: Folha, repo: Repository, onDismiss: () -> Unit) {
             if (editando != null) {
                 TextButton(onClick = { confirmarExclusao = true }, modifier = Modifier.fillMaxWidth()) {
                     Text("Excluir da rotina", color = Cores.TerracotaEscuro, fontWeight = FontWeight.Bold)
+                }
+            }
+            if (avulsa != null) {
+                TextButton(
+                    onClick = {
+                        repo.removeOneOff(avulsa.date, avulsa.entry.taskId)
+                        onDismiss()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Remover tarefa de hoje", color = Cores.TerracotaEscuro, fontWeight = FontWeight.Bold)
                 }
             }
             Spacer(Modifier.size(4.dp))

@@ -15,13 +15,25 @@ class AlarmReceiver : BroadcastReceiver() {
         val today = LocalDate.now()
         repo.refreshDay(today)
 
+        val ehTemporizador = intent.getStringExtra(ReminderScheduler.EXTRA_KIND) == ReminderScheduler.KIND_TIMER
+        val antes = repo.data.value.record(today)?.entries?.firstOrNull { it.taskId == taskId }
+        // O temporizador terminou: deixa de estar "em andamento".
+        if (ehTemporizador) repo.stopTimer(today, taskId)
+
         val data = repo.data.value
         val entry = data.record(today)?.entries?.firstOrNull { it.taskId == taskId }
         // Só avisa se a tarefa é de hoje e ainda não foi feita.
-        if (entry != null && !entry.done) {
+        if (entry != null && !entry.done && (!ehTemporizador || antes?.timerEndsAt != null)) {
             val title = entry.title.ifBlank { intent.getStringExtra(ReminderScheduler.EXTRA_TITLE) ?: "Tarefa" }
-            val quote = Quotes.ofDay(today, data.customQuotes)
-            Notifications.showReminder(context, taskId, title, quote, tocar = true)
+            val quote = if (ehTemporizador) {
+                "O temporizador de ${entry.timerMinutes ?: 0} min terminou."
+            } else {
+                Quotes.ofDay(today, data.customQuotes)
+            }
+            Notifications.showReminder(
+                context, taskId, title, quote, tocar = true,
+                chamada = if (ehTemporizador) "Tempo esgotado!" else "Está na hora!",
+            )
             // Para de tocar sozinho se ninguém responder.
             ReminderScheduler.scheduleSilence(context, taskId, title, quote, Notifications.TEMPO_TOCANDO_MS)
         }

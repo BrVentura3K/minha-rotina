@@ -53,6 +53,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import br.com.minharotina.alarm.ReminderScheduler
+import br.com.minharotina.data.DayEntry
 import br.com.minharotina.data.Repository
 import br.com.minharotina.data.RoutineTask
 import android.widget.Toast
@@ -71,6 +72,7 @@ enum class Aba(val rotulo: String, val icone: ImageVector) {
 sealed interface Folha {
     data class Nova(val naRotina: Boolean) : Folha
     data class Editar(val task: RoutineTask) : Folha
+    data class EditarAvulsa(val date: LocalDate, val entry: DayEntry) : Folha
 }
 
 @Composable
@@ -185,7 +187,17 @@ fun RotinaRoot(repo: Repository, resumeTick: Int) {
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
             when (aba) {
-                Aba.HOJE -> TodayScreen(data = data, hoje = hoje, repo = repo, resumeTick = resumeTick) {
+                Aba.HOJE -> TodayScreen(
+                    data = data, hoje = hoje, repo = repo, resumeTick = resumeTick,
+                    onEditar = { e ->
+                        val rotina = data.tasks.firstOrNull { it.id == e.taskId }
+                        folha = when {
+                            e.oneOff -> Folha.EditarAvulsa(hoje, e)
+                            rotina != null -> Folha.Editar(rotina)
+                            else -> null
+                        }
+                    },
+                ) {
                     atualizacao?.let { CartaoAtualizacao(it, progresso, atualizar) }
                 }
                 Aba.ROTINAS -> RoutinesScreen(tasks = data.tasks, onEditar = { folha = Folha.Editar(it) })

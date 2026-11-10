@@ -24,6 +24,8 @@ object ReminderScheduler {
     const val EXTRA_TASK_ID = "taskId"
     const val EXTRA_TITLE = "title"
     const val EXTRA_QUOTE = "quote"
+    const val EXTRA_KIND = "kind"
+    const val KIND_TIMER = "timer"
 
     fun canScheduleExact(context: Context): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return true
@@ -38,6 +40,14 @@ object ReminderScheduler {
         for (task in data.tasks) {
             val next = nextOccurrence(task, now, todayRecord?.entries?.firstOrNull { it.taskId == task.id }?.done == true)
             if (next == null) cancel(context, task.id) else schedule(context, task.id, task.title, next)
+        }
+
+        // Temporizadores em andamento (também sobrevivem a reiniciar o celular).
+        val agoraMs = System.currentTimeMillis()
+        todayRecord?.entries?.forEach { e ->
+            val fim = e.timerEndsAt
+            if (fim != null && fim > agoraMs && !e.done) scheduleTimer(context, e.taskId, e.title, fim)
+            else cancelTimer(context, e.taskId)
         }
 
         todayRecord?.entries?.filter { it.oneOff }?.forEach { e ->
@@ -92,6 +102,32 @@ object ReminderScheduler {
             Log.w("ReminderScheduler", "Sem permissão de alarme exato", e)
             am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pi)
         }
+    }
+
+    private fun timerIntent(context: Context, taskId: String, title: String? = null) =
+        Intent(context, AlarmReceiver::class.java).apply {
+            action = ACTION_REMINDER
+            data = Uri.parse("rotina://timer/$taskId")
+            putExtra(EXTRA_TASK_ID, taskId)
+            putExtra(EXTRA_KIND, KIND_TIMER)
+            if (title != null) putExtra(EXTRA_TITLE, title)
+        }
+
+    private fun scheduleTimer(context: Context, taskId: String, title: String, endsAtMillis: Long) {
+        val pi = PendingIntent.getBroadcast(
+            context, 0, timerIntent(context, taskId, title),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        setAlarm(context, endsAtMillis, pi)
+    }
+
+    fun cancelTimer(context: Context, taskId: String) {
+        val pi = PendingIntent.getBroadcast(
+            context, 0, timerIntent(context, taskId),
+            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE,
+        ) ?: return
+        context.getSystemService(AlarmManager::class.java).cancel(pi)
+        pi.cancel()
     }
 
     /** "Adiar": toca de novo daqui a [minutos], sem mexer no alarme normal da tarefa. */

@@ -1,6 +1,8 @@
 package br.com.minharotina.ui
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -16,19 +18,28 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
@@ -40,6 +51,7 @@ import br.com.minharotina.data.DayEntry
 import br.com.minharotina.data.Repository
 import br.com.minharotina.data.formatTime
 import br.com.minharotina.quotes.Quotes
+import kotlinx.coroutines.delay
 import java.time.LocalDate
 
 @Composable
@@ -48,6 +60,7 @@ fun TodayScreen(
     hoje: LocalDate,
     repo: Repository,
     resumeTick: Int,
+    onEditar: (DayEntry) -> Unit,
     avisoAtualizacao: @Composable () -> Unit = {},
 ) {
     val registro = data.record(hoje)
@@ -55,6 +68,17 @@ fun TodayScreen(
     val feitas = entradas.count { it.done }
     val total = entradas.size
     var expandida by rememberSaveable { mutableStateOf<String?>(null) }
+
+    // Relógio da contagem regressiva: só anda enquanto há temporizador rodando.
+    var agora by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    val algumRodando = entradas.any { (it.timerEndsAt ?: 0L) > agora }
+    LaunchedEffect(algumRodando, resumeTick) {
+        agora = System.currentTimeMillis()
+        while (algumRodando) {
+            delay(1_000)
+            agora = System.currentTimeMillis()
+        }
+    }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -102,7 +126,10 @@ fun TodayScreen(
                 onExpandir = { expandida = if (expandida == e.taskId) null else e.taskId },
                 onToggle = { repo.toggleDone(hoje, e.taskId) },
                 onNota = { repo.setNote(hoje, e.taskId, it) },
-                onRemover = if (e.oneOff) ({ repo.removeOneOff(hoje, e.taskId) }) else null,
+                onEditar = { onEditar(e) },
+                agora = agora,
+                onIniciarTimer = { repo.startTimer(hoje, e.taskId) },
+                onPararTimer = { repo.stopTimer(hoje, e.taskId) },
             )
         }
     }
@@ -129,7 +156,10 @@ private fun ItemTarefa(
     onExpandir: () -> Unit,
     onToggle: () -> Unit,
     onNota: (String) -> Unit,
-    onRemover: (() -> Unit)?,
+    onEditar: () -> Unit,
+    agora: Long,
+    onIniciarTimer: () -> Unit,
+    onPararTimer: () -> Unit,
 ) {
     Surface(
         shape = RoundedCornerShape(16.dp),
@@ -167,6 +197,15 @@ private fun ItemTarefa(
                             }
                         }
                     }
+                    val minutos = e.timerMinutes
+                    if (minutos != null && !e.done) {
+                        BotaoTemporizador(
+                            minutos = minutos,
+                            restanteMs = e.timerEndsAt?.let { it - agora }?.takeIf { it > 0 },
+                            onIniciar = onIniciarTimer,
+                            onParar = onPararTimer,
+                        )
+                    }
                     if (!expandida && e.note.isNotBlank()) {
                         Text(
                             "Nota: ${e.note}", fontSize = 13.sp, color = Cores.Suave,
@@ -184,12 +223,57 @@ private fun ItemTarefa(
                         placeholder = { Text("Como foi? O que aconteceu?") },
                         modifier = Modifier.fillMaxWidth().height(110.dp),
                     )
-                    if (onRemover != null) {
-                        TextButton(onClick = onRemover) {
-                            Text("Remover tarefa de hoje", color = Cores.TerracotaEscuro, fontWeight = FontWeight.Bold)
-                        }
+                    TextButton(onClick = onEditar) {
+                        Icon(Icons.Default.Edit, contentDescription = null, tint = Cores.Verde, modifier = Modifier.size(18.dp))
+                        Text("  Editar tarefa", color = Cores.Verde, fontWeight = FontWeight.Bold)
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BotaoTemporizador(minutos: Int, restanteMs: Long?, onIniciar: () -> Unit, onParar: () -> Unit) {
+    if (restanteMs == null) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .padding(top = 4.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(Cores.Verde)
+                .clickable(onClickLabel = "Iniciar temporizador de $minutos minutos", onClick = onIniciar)
+                .padding(start = 10.dp, end = 14.dp, top = 8.dp, bottom = 8.dp),
+        ) {
+            Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+            Text(" Iniciar $minutos min", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White)
+        }
+    } else {
+        val total = restanteMs / 1000
+        val texto = if (total >= 3600) {
+            "%d:%02d:%02d".format(total / 3600, (total % 3600) / 60, total % 60)
+        } else {
+            "%02d:%02d".format(total / 60, total % 60)
+        }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.padding(top = 4.dp),
+        ) {
+            Text(
+                texto, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = Cores.Verde,
+                modifier = Modifier.semantics { contentDescription = "Faltam $texto" },
+            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(12.dp))
+                    .border(1.dp, Cores.Borda, RoundedCornerShape(12.dp))
+                    .clickable(onClickLabel = "Parar temporizador", onClick = onParar)
+                    .padding(start = 8.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
+            ) {
+                Icon(Icons.Default.Close, contentDescription = null, tint = Cores.Suave, modifier = Modifier.size(16.dp))
+                Text(" Parar", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Cores.Suave)
             }
         }
     }

@@ -58,12 +58,14 @@ class AlarmActivity : ComponentActivity() {
         }
         val titulo = intent.getStringExtra(ReminderScheduler.EXTRA_TITLE) ?: "Tarefa"
         val frase = intent.getStringExtra(ReminderScheduler.EXTRA_QUOTE) ?: ""
+        val chamada = intent.getStringExtra(Notifications.EXTRA_CHAMADA) ?: "Está na hora!"
         val hora = LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm"))
 
         setContent {
             RotinaTheme {
                 TelaAlarme(
                     hora = hora,
+                    chamada = chamada,
                     titulo = titulo,
                     frase = frase,
                     onFeito = {
@@ -91,6 +93,7 @@ class AlarmActivity : ComponentActivity() {
 @Composable
 private fun TelaAlarme(
     hora: String,
+    chamada: String,
     titulo: String,
     frase: String,
     onFeito: () -> Unit,
@@ -108,7 +111,7 @@ private fun TelaAlarme(
             Spacer(Modifier.weight(1f))
             Text(hora, fontSize = 64.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
             Spacer(Modifier.height(8.dp))
-            Text("Está na hora de", fontSize = 18.sp, color = Color.White.copy(alpha = 0.9f))
+            Text(chamada, fontSize = 18.sp, color = Color.White.copy(alpha = 0.9f))
             Spacer(Modifier.height(4.dp))
             Text(
                 titulo, fontSize = 30.sp, fontWeight = FontWeight.ExtraBold, color = Color.White,

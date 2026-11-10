@@ -83,7 +83,7 @@ class Repository(private val context: Context) {
 
     private fun RoutineTask.toEntry() = DayEntry(
         taskId = id, title = title, hour = hour, minute = minute,
-        done = false, note = "", oneOff = false,
+        done = false, note = "", oneOff = false, timerMinutes = timerMinutes,
     )
 
     private fun AppData.withRecord(date: LocalDate, change: (DayRecord) -> DayRecord): AppData {
@@ -95,48 +95,75 @@ class Repository(private val context: Context) {
     private fun DayRecord.mapEntry(taskId: String, change: (DayEntry) -> DayEntry) =
         copy(entries = entries.map { if (it.taskId == taskId) change(it) else it })
 
+    /** Ticar também para o temporizador, se estiver rodando. */
     fun toggleDone(date: LocalDate, taskId: String) = mutate { d ->
-        d.withRecord(date) { r -> r.mapEntry(taskId) { it.copy(done = !it.done) } }
+        d.withRecord(date) { r -> r.mapEntry(taskId) { it.copy(done = !it.done, timerEndsAt = null) } }
     }
 
     fun markDone(date: LocalDate, taskId: String) = mutate { d ->
-        d.withRecord(date) { r -> r.mapEntry(taskId) { it.copy(done = true) } }
+        d.withRecord(date) { r -> r.mapEntry(taskId) { it.copy(done = true, timerEndsAt = null) } }
+    }
+
+    fun startTimer(date: LocalDate, taskId: String) = mutate { d ->
+        d.withRecord(date) { r ->
+            r.mapEntry(taskId) { e ->
+                val min = e.timerMinutes ?: return@mapEntry e
+                e.copy(timerEndsAt = System.currentTimeMillis() + min * 60_000L)
+            }
+        }
+    }
+
+    fun stopTimer(date: LocalDate, taskId: String) = mutate { d ->
+        d.withRecord(date) { r -> r.mapEntry(taskId) { it.copy(timerEndsAt = null) } }
     }
 
     fun setNote(date: LocalDate, taskId: String, note: String) = mutate { d ->
         d.withRecord(date) { r -> r.mapEntry(taskId) { it.copy(note = note) } }
     }
 
-    fun addOneOff(title: String, hour: Int?, minute: Int?, date: LocalDate = LocalDate.now()) {
+    fun addOneOff(title: String, hour: Int?, minute: Int?, timerMinutes: Int?, date: LocalDate = LocalDate.now()) {
         refreshDay()
-        addOneOffInternal(title, hour, minute, date)
+        addOneOffInternal(title, hour, minute, timerMinutes, date)
     }
 
-    private fun addOneOffInternal(title: String, hour: Int?, minute: Int?, date: LocalDate) = mutate { d ->
+    private fun addOneOffInternal(title: String, hour: Int?, minute: Int?, timerMinutes: Int?, date: LocalDate) = mutate { d ->
         val entry = DayEntry(
             taskId = "avulsa-" + UUID.randomUUID().toString(),
             title = title.trim(), hour = hour, minute = minute,
-            done = false, note = "", oneOff = true,
+            done = false, note = "", oneOff = true, timerMinutes = timerMinutes,
         )
         d.withRecord(date) { r -> r.copy(entries = r.entries + entry) }
     }
 
+    /** Edita uma tarefa "Só hoje". */
+    fun updateOneOff(date: LocalDate, taskId: String, title: String, hour: Int?, minute: Int?, timerMinutes: Int?) = mutate { d ->
+        d.withRecord(date) { r ->
+            r.mapEntry(taskId) {
+                it.copy(
+                    title = title.trim(), hour = hour, minute = minute, timerMinutes = timerMinutes,
+                    timerEndsAt = if (timerMinutes == null) null else it.timerEndsAt,
+                )
+            }
+        }
+    }
+
     fun removeOneOff(date: LocalDate, taskId: String) {
         ReminderScheduler.cancel(context, taskId)
+        ReminderScheduler.cancelTimer(context, taskId)
         mutate { d -> d.withRecord(date) { r -> r.copy(entries = r.entries.filterNot { it.taskId == taskId }) } }
     }
 
-    fun addRoutine(title: String, days: Set<Int>, hour: Int?, minute: Int?) {
+    fun addRoutine(title: String, days: Set<Int>, hour: Int?, minute: Int?, timerMinutes: Int?) {
         refreshDay()
-        addRoutineInternal(title, days, hour, minute)
+        addRoutineInternal(title, days, hour, minute, timerMinutes)
     }
 
-    private fun addRoutineInternal(title: String, days: Set<Int>, hour: Int?, minute: Int?) = mutate { d ->
+    private fun addRoutineInternal(title: String, days: Set<Int>, hour: Int?, minute: Int?, timerMinutes: Int?) = mutate { d ->
         val today = LocalDate.now()
         val task = RoutineTask(
             id = UUID.randomUUID().toString(),
             title = title.trim(), days = days, hour = hour, minute = minute,
-            createdAt = System.currentTimeMillis(),
+            createdAt = System.currentTimeMillis(), timerMinutes = timerMinutes,
         )
         val withTask = d.copy(tasks = d.tasks + task)
         if (today.dayOfWeek.value in days) {
@@ -158,7 +185,11 @@ class Repository(private val context: Context) {
             val scheduledToday = today.dayOfWeek.value in updated.days
             when {
                 existing != null && scheduledToday -> r.mapEntry(updated.id) {
-                    it.copy(title = updated.title, hour = updated.hour, minute = updated.minute)
+                    it.copy(
+                        title = updated.title, hour = updated.hour, minute = updated.minute,
+                        timerMinutes = updated.timerMinutes,
+                        timerEndsAt = if (updated.timerMinutes == null) null else it.timerEndsAt,
+                    )
                 }
                 existing != null && !existing.done -> r.copy(entries = r.entries - existing)
                 existing == null && scheduledToday -> r.copy(entries = r.entries + updated.toEntry())
@@ -170,6 +201,7 @@ class Repository(private val context: Context) {
     /** Remove da rotina. Dias passados continuam no histórico. */
     fun deleteRoutine(taskId: String) {
         ReminderScheduler.cancel(context, taskId)
+        ReminderScheduler.cancelTimer(context, taskId)
         refreshDay()
         mutate { d ->
             val today = LocalDate.now()

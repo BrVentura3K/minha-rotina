@@ -13,6 +13,8 @@ data class RoutineTask(
     val hour: Int?,
     val minute: Int?,
     val createdAt: Long,
+    /** Duração do temporizador em minutos, ou null se a tarefa não tem temporizador. */
+    val timerMinutes: Int? = null,
 )
 
 /** Uma tarefa dentro de um dia específico (foto do que era a tarefa naquele dia). */
@@ -24,6 +26,9 @@ data class DayEntry(
     val done: Boolean,
     val note: String,
     val oneOff: Boolean,
+    val timerMinutes: Int? = null,
+    /** Quando o temporizador em andamento termina (epoch ms), ou null se parado. */
+    val timerEndsAt: Long? = null,
 ) {
     val sortKey: Int get() = if (hour == null) 24 * 60 + 1 else hour * 60 + (minute ?: 0)
 }

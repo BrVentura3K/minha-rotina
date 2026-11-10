@@ -58,6 +58,8 @@ object Notifications {
         )
     }
 
+    const val EXTRA_CHAMADA = "chamada"
+
     fun notificationId(taskId: String) = taskId.hashCode()
 
     fun isShowing(context: Context, taskId: String): Boolean =
@@ -68,7 +70,14 @@ object Notifications {
      * Mostra o lembrete. Com [tocar] = true, toca o som de alarme em repetição até a
      * pessoa responder e abre a tela cheia se o celular estiver bloqueado.
      */
-    fun showReminder(context: Context, taskId: String, title: String, quote: String, tocar: Boolean = true) {
+    fun showReminder(
+        context: Context,
+        taskId: String,
+        title: String,
+        quote: String,
+        tocar: Boolean = true,
+        chamada: String = "Está na hora!",
+    ) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
             PackageManager.PERMISSION_GRANTED
@@ -93,6 +102,7 @@ object Notifications {
                 data = Uri.parse("rotina://adiar/$taskId")
                 putExtra(ReminderScheduler.EXTRA_TASK_ID, taskId)
                 putExtra(ReminderScheduler.EXTRA_TITLE, title)
+                putExtra(ReminderScheduler.EXTRA_QUOTE, chamada)
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
@@ -100,8 +110,8 @@ object Notifications {
         val builder = NotificationCompat.Builder(context, if (tocar) CHANNEL_ALARME else CHANNEL_SILENCIOSO)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title)
-            .setContentText("Está na hora! $quote")
-            .setStyle(NotificationCompat.BigTextStyle().bigText("Está na hora!\n$quote"))
+            .setContentText("$chamada $quote")
+            .setStyle(NotificationCompat.BigTextStyle().bigText("$chamada\n$quote"))
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(if (tocar) NotificationCompat.CATEGORY_ALARM else NotificationCompat.CATEGORY_REMINDER)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
@@ -118,6 +128,7 @@ object Notifications {
                     putExtra(ReminderScheduler.EXTRA_TASK_ID, taskId)
                     putExtra(ReminderScheduler.EXTRA_TITLE, title)
                     putExtra(ReminderScheduler.EXTRA_QUOTE, quote)
+                    putExtra(EXTRA_CHAMADA, chamada)
                 },
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )

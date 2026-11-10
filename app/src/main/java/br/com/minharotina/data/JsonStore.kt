@@ -46,6 +46,7 @@ class JsonStore(context: Context) {
                     put("hour", t.hour ?: -1)
                     put("minute", t.minute ?: -1)
                     put("createdAt", t.createdAt)
+                    put("timerMinutes", t.timerMinutes ?: -1)
                 })
             }
         })
@@ -63,6 +64,8 @@ class JsonStore(context: Context) {
                                 put("done", e.done)
                                 put("note", e.note)
                                 put("oneOff", e.oneOff)
+                                put("timerMinutes", e.timerMinutes ?: -1)
+                                put("timerEndsAt", e.timerEndsAt ?: 0L)
                             })
                         }
                     })
@@ -88,6 +91,7 @@ class JsonStore(context: Context) {
                     hour = t.optInt("hour", -1).takeIf { it >= 0 },
                     minute = t.optInt("minute", -1).takeIf { it >= 0 },
                     createdAt = t.optLong("createdAt", 0L),
+                    timerMinutes = t.optInt("timerMinutes", -1).takeIf { it > 0 },
                 )
             }
         }
@@ -107,6 +111,8 @@ class JsonStore(context: Context) {
                         done = e.optBoolean("done", false),
                         note = e.optString("note", ""),
                         oneOff = e.optBoolean("oneOff", false),
+                        timerMinutes = e.optInt("timerMinutes", -1).takeIf { it > 0 },
+                        timerEndsAt = e.optLong("timerEndsAt", 0L).takeIf { it > 0 },
                     )
                 }
                 val date = r.getString("date")
