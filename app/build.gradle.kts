@@ -11,7 +11,7 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "br.com.minharotina"
+        applicationId = "io.github.brventura3k.rotina"
         minSdk = 26
         targetSdk = 35
         versionCode = 2
