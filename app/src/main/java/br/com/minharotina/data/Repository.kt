@@ -79,12 +79,16 @@ class Repository(private val context: Context) {
     }
 
     private fun scheduledEntries(tasks: List<RoutineTask>, date: LocalDate): List<DayEntry> =
-        tasks.filter { date.dayOfWeek.value in it.days }.map { it.toEntry() }
+        tasks.filter { date.dayOfWeek.value in it.days }
+            .sortedBy { it.order }
+            .mapIndexed { i, t -> t.toEntry(i) }
 
-    private fun RoutineTask.toEntry() = DayEntry(
-        taskId = id, title = title, hour = hour, minute = minute,
-        done = false, note = "", oneOff = false, timerMinutes = timerMinutes,
+    private fun RoutineTask.toEntry(order: Int) = DayEntry(
+        taskId = id, title = title, alarms = alarms,
+        done = false, note = "", oneOff = false, timerMinutes = timerMinutes, order = order,
     )
+
+    private fun DayRecord.nextOrder(): Int = (entries.maxOfOrNull { it.order } ?: -1) + 1
 
     private fun AppData.withRecord(date: LocalDate, change: (DayRecord) -> DayRecord): AppData {
         val key = date.toString()
@@ -121,26 +125,28 @@ class Repository(private val context: Context) {
         d.withRecord(date) { r -> r.mapEntry(taskId) { it.copy(note = note) } }
     }
 
-    fun addOneOff(title: String, hour: Int?, minute: Int?, timerMinutes: Int?, date: LocalDate = LocalDate.now()) {
+    fun addOneOff(title: String, alarms: List<Int>, timerMinutes: Int?, date: LocalDate = LocalDate.now()) {
         refreshDay()
-        addOneOffInternal(title, hour, minute, timerMinutes, date)
+        addOneOffInternal(title, alarms, timerMinutes, date)
     }
 
-    private fun addOneOffInternal(title: String, hour: Int?, minute: Int?, timerMinutes: Int?, date: LocalDate) = mutate { d ->
-        val entry = DayEntry(
-            taskId = "avulsa-" + UUID.randomUUID().toString(),
-            title = title.trim(), hour = hour, minute = minute,
-            done = false, note = "", oneOff = true, timerMinutes = timerMinutes,
-        )
-        d.withRecord(date) { r -> r.copy(entries = r.entries + entry) }
+    private fun addOneOffInternal(title: String, alarms: List<Int>, timerMinutes: Int?, date: LocalDate) = mutate { d ->
+        d.withRecord(date) { r ->
+            val entry = DayEntry(
+                taskId = "avulsa-" + UUID.randomUUID().toString(),
+                title = title.trim(), alarms = alarms.distinct().sorted(),
+                done = false, note = "", oneOff = true, timerMinutes = timerMinutes, order = r.nextOrder(),
+            )
+            r.copy(entries = r.entries + entry)
+        }
     }
 
     /** Edita uma tarefa "Só hoje". */
-    fun updateOneOff(date: LocalDate, taskId: String, title: String, hour: Int?, minute: Int?, timerMinutes: Int?) = mutate { d ->
+    fun updateOneOff(date: LocalDate, taskId: String, title: String, alarms: List<Int>, timerMinutes: Int?) = mutate { d ->
         d.withRecord(date) { r ->
             r.mapEntry(taskId) {
                 it.copy(
-                    title = title.trim(), hour = hour, minute = minute, timerMinutes = timerMinutes,
+                    title = title.trim(), alarms = alarms.distinct().sorted(), timerMinutes = timerMinutes,
                     timerEndsAt = if (timerMinutes == null) null else it.timerEndsAt,
                 )
             }
@@ -153,21 +159,22 @@ class Repository(private val context: Context) {
         mutate { d -> d.withRecord(date) { r -> r.copy(entries = r.entries.filterNot { it.taskId == taskId }) } }
     }
 
-    fun addRoutine(title: String, days: Set<Int>, hour: Int?, minute: Int?, timerMinutes: Int?) {
+    fun addRoutine(title: String, days: Set<Int>, alarms: List<Int>, timerMinutes: Int?) {
         refreshDay()
-        addRoutineInternal(title, days, hour, minute, timerMinutes)
+        addRoutineInternal(title, days, alarms, timerMinutes)
     }
 
-    private fun addRoutineInternal(title: String, days: Set<Int>, hour: Int?, minute: Int?, timerMinutes: Int?) = mutate { d ->
+    private fun addRoutineInternal(title: String, days: Set<Int>, alarms: List<Int>, timerMinutes: Int?) = mutate { d ->
         val today = LocalDate.now()
         val task = RoutineTask(
             id = UUID.randomUUID().toString(),
-            title = title.trim(), days = days, hour = hour, minute = minute,
+            title = title.trim(), days = days, alarms = alarms.distinct().sorted(),
             createdAt = System.currentTimeMillis(), timerMinutes = timerMinutes,
+            order = (d.tasks.maxOfOrNull { it.order } ?: -1) + 1,
         )
         val withTask = d.copy(tasks = d.tasks + task)
         if (today.dayOfWeek.value in days) {
-            withTask.withRecord(today) { r -> r.copy(entries = r.entries + task.toEntry()) }
+            withTask.withRecord(today) { r -> r.copy(entries = r.entries + task.toEntry(r.nextOrder())) }
         } else withTask
     }
 
@@ -179,20 +186,21 @@ class Repository(private val context: Context) {
 
     private fun updateRoutineInternal(updated: RoutineTask) = mutate { d ->
         val today = LocalDate.now()
-        val withTask = d.copy(tasks = d.tasks.map { if (it.id == updated.id) updated else it })
+        val limpa = updated.copy(alarms = updated.alarms.distinct().sorted())
+        val withTask = d.copy(tasks = d.tasks.map { if (it.id == limpa.id) limpa else it })
         withTask.withRecord(today) { r ->
             val existing = r.entries.firstOrNull { it.taskId == updated.id }
             val scheduledToday = today.dayOfWeek.value in updated.days
             when {
                 existing != null && scheduledToday -> r.mapEntry(updated.id) {
                     it.copy(
-                        title = updated.title, hour = updated.hour, minute = updated.minute,
+                        title = updated.title, alarms = updated.alarms,
                         timerMinutes = updated.timerMinutes,
                         timerEndsAt = if (updated.timerMinutes == null) null else it.timerEndsAt,
                     )
                 }
                 existing != null && !existing.done -> r.copy(entries = r.entries - existing)
-                existing == null && scheduledToday -> r.copy(entries = r.entries + updated.toEntry())
+                existing == null && scheduledToday -> r.copy(entries = r.entries + updated.toEntry(r.nextOrder()))
                 else -> r
             }
         }
@@ -208,6 +216,69 @@ class Repository(private val context: Context) {
             d.copy(tasks = d.tasks.filterNot { it.id == taskId })
                 .withRecord(today) { r -> r.copy(entries = r.entries.filterNot { it.taskId == taskId && !it.done }) }
         }
+    }
+
+    // ---------- Ordem da fila ----------
+
+    /** Sobe (delta = -1) ou desce (delta = +1) uma tarefa na fila do dia. */
+    fun moveEntry(date: LocalDate, taskId: String, delta: Int) = mutate { d ->
+        val lista = d.record(date)?.entries.orEmpty().sortedBy { it.order }.toMutableList()
+        val i = lista.indexOfFirst { it.taskId == taskId }
+        val j = i + delta
+        if (i < 0 || j !in lista.indices) return@mutate d
+        java.util.Collections.swap(lista, i, j)
+        aplicarOrdemDoDia(d, date, lista)
+    }
+
+    /** Coloca as tarefas do dia em ordem cronológica (pelo primeiro alarme). */
+    fun sortDayByTime(date: LocalDate) = mutate { d ->
+        val lista = d.record(date)?.entries.orEmpty()
+            .sortedWith(compareBy<DayEntry>({ it.sortKey }, { it.order }))
+        aplicarOrdemDoDia(d, date, lista)
+    }
+
+    /**
+     * Grava a nova ordem do dia e leva a mudança para a rotina: as tarefas de rotina
+     * do dia trocam de lugar entre si na fila geral, para os próximos dias seguirem igual.
+     */
+    private fun aplicarOrdemDoDia(d: AppData, date: LocalDate, lista: List<DayEntry>): AppData {
+        val entradas = lista.mapIndexed { i, e -> e.copy(order = i) }
+        val idsDoDia = entradas.filter { !it.oneOff }.map { it.taskId }
+        val globais = d.tasks.sortedBy { it.order }.toMutableList()
+        val vagas = globais.indices.filter { globais[it].id in idsDoDia }
+        val naNovaOrdem = idsDoDia.mapNotNull { id -> globais.firstOrNull { it.id == id } }
+        vagas.forEachIndexed { k, vaga -> if (k < naNovaOrdem.size) globais[vaga] = naNovaOrdem[k] }
+        val tasks = globais.mapIndexed { i, t -> t.copy(order = i) }
+        return d.copy(tasks = tasks).withRecord(date) { it.copy(entries = entradas) }
+    }
+
+    /** Sobe ou desce uma tarefa na fila geral da rotina (aba Rotinas). */
+    fun moveRoutine(taskId: String, delta: Int) = mutate { d ->
+        val globais = d.tasks.sortedBy { it.order }.toMutableList()
+        val i = globais.indexOfFirst { it.id == taskId }
+        val j = i + delta
+        if (i < 0 || j !in globais.indices) return@mutate d
+        java.util.Collections.swap(globais, i, j)
+        aplicarOrdemDaRotina(d, globais)
+    }
+
+    /** Coloca a rotina inteira em ordem cronológica. */
+    fun sortRoutinesByTime() = mutate { d ->
+        aplicarOrdemDaRotina(d, d.tasks.sortedWith(compareBy<RoutineTask>({ it.sortKey }, { it.order })))
+    }
+
+    /** Grava a ordem geral e reflete no dia de hoje (tarefas "Só hoje" ficam onde estão). */
+    private fun aplicarOrdemDaRotina(d: AppData, novaOrdem: List<RoutineTask>): AppData {
+        val tasks = novaOrdem.mapIndexed { i, t -> t.copy(order = i) }
+        val posicao = tasks.associate { it.id to it.order }
+        val hoje = LocalDate.now()
+        val atual = d.record(hoje)?.entries.orEmpty().sortedBy { it.order }.toMutableList()
+        val vagas = atual.indices.filter { !atual[it].oneOff && atual[it].taskId in posicao }
+        val rotinas = vagas.map { atual[it] }.sortedBy { posicao[it.taskId] }
+        vagas.forEachIndexed { k, vaga -> atual[vaga] = rotinas[k] }
+        val entradas = atual.mapIndexed { i, e -> e.copy(order = i) }
+        val comTarefas = d.copy(tasks = tasks)
+        return if (d.record(hoje) == null) comTarefas else comTarefas.withRecord(hoje) { it.copy(entries = entradas) }
     }
 
     fun toggleFavorite(quote: String) = mutate { d ->

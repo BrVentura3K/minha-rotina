@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -15,7 +16,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -23,6 +24,9 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -49,7 +53,7 @@ import androidx.compose.ui.unit.sp
 import br.com.minharotina.data.AppData
 import br.com.minharotina.data.DayEntry
 import br.com.minharotina.data.Repository
-import br.com.minharotina.data.formatTime
+import br.com.minharotina.data.formatAlarms
 import br.com.minharotina.quotes.Quotes
 import kotlinx.coroutines.delay
 import java.time.LocalDate
@@ -64,10 +68,11 @@ fun TodayScreen(
     avisoAtualizacao: @Composable () -> Unit = {},
 ) {
     val registro = data.record(hoje)
-    val entradas = registro?.entries.orEmpty().sortedBy { it.sortKey }
+    val entradas = registro?.entries.orEmpty().sortedBy { it.order }
     val feitas = entradas.count { it.done }
     val total = entradas.size
     var expandida by rememberSaveable { mutableStateOf<String?>(null) }
+    var ordenando by rememberSaveable { mutableStateOf(false) }
 
     // Relógio da contagem regressiva: só anda enquanto há temporizador rodando.
     var agora by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -109,6 +114,16 @@ fun TodayScreen(
             CartaoFrase(manchete.label, manchete.text, if (total == 0) 0f else feitas.toFloat() / total)
         }
 
+        if (entradas.size > 1) {
+            item {
+                BarraOrdenar(
+                    ordenando = ordenando,
+                    onAlternar = { ordenando = !ordenando; expandida = null },
+                    onPorHorario = { repo.sortDayByTime(hoje) },
+                )
+            }
+        }
+
         if (entradas.isEmpty()) {
             item {
                 Text(
@@ -119,9 +134,13 @@ fun TodayScreen(
             }
         }
 
-        items(entradas, key = { it.taskId }) { e ->
+        itemsIndexed(entradas, key = { _, e -> e.taskId }) { i, e ->
             ItemTarefa(
                 e = e,
+                numero = i + 1,
+                ordenando = ordenando,
+                onSubir = if (i > 0) ({ repo.moveEntry(hoje, e.taskId, -1) }) else null,
+                onDescer = if (i < entradas.lastIndex) ({ repo.moveEntry(hoje, e.taskId, +1) }) else null,
                 expandida = expandida == e.taskId,
                 onExpandir = { expandida = if (expandida == e.taskId) null else e.taskId },
                 onToggle = { repo.toggleDone(hoje, e.taskId) },
@@ -152,6 +171,10 @@ private fun CartaoFrase(rotulo: String, texto: String, progresso: Float) {
 @Composable
 private fun ItemTarefa(
     e: DayEntry,
+    numero: Int,
+    ordenando: Boolean,
+    onSubir: (() -> Unit)?,
+    onDescer: (() -> Unit)?,
     expandida: Boolean,
     onExpandir: () -> Unit,
     onToggle: () -> Unit,
@@ -169,7 +192,7 @@ private fun ItemTarefa(
     ) {
         Column(
             Modifier
-                .clickable(onClickLabel = "Abrir nota", onClick = onExpandir)
+                .clickable(enabled = !ordenando, onClickLabel = "Abrir nota", onClick = onExpandir)
                 .padding(start = 6.dp, end = 14.dp, top = 6.dp, bottom = 10.dp),
         ) {
             Row(verticalAlignment = Alignment.Top) {
@@ -180,14 +203,17 @@ private fun ItemTarefa(
                 )
                 Spacer(Modifier.size(6.dp))
                 Column(Modifier.weight(1f).padding(top = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(
-                        e.title,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = if (e.done) Cores.Suave else Cores.Tinta,
-                        textDecoration = if (e.done) TextDecoration.LineThrough else null,
-                    )
-                    val hora = formatTime(e.hour, e.minute)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Numero(numero, apagado = e.done)
+                        Text(
+                            e.title,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (e.done) Cores.Suave else Cores.Tinta,
+                            textDecoration = if (e.done) TextDecoration.LineThrough else null,
+                        )
+                    }
+                    val hora = e.alarms.formatAlarms()
                     if (e.oneOff || hora != null) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             if (e.oneOff) Etiqueta("Só hoje")
@@ -198,7 +224,7 @@ private fun ItemTarefa(
                         }
                     }
                     val minutos = e.timerMinutes
-                    if (minutos != null && !e.done) {
+                    if (minutos != null && !e.done && !ordenando) {
                         BotaoTemporizador(
                             minutos = minutos,
                             restanteMs = e.timerEndsAt?.let { it - agora }?.takeIf { it > 0 },
@@ -212,6 +238,9 @@ private fun ItemTarefa(
                             maxLines = 2, overflow = TextOverflow.Ellipsis,
                         )
                     }
+                }
+                if (ordenando) {
+                    SetasOrdem(titulo = e.title, onSubir = onSubir, onDescer = onDescer)
                 }
             }
             if (expandida) {
@@ -275,6 +304,78 @@ private fun BotaoTemporizador(minutos: Int, restanteMs: Long?, onIniciar: () -> 
                 Icon(Icons.Default.Close, contentDescription = null, tint = Cores.Suave, modifier = Modifier.size(16.dp))
                 Text(" Parar", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Cores.Suave)
             }
+        }
+    }
+}
+
+/** Linha com o botão Ordenar e, durante a ordenação, o atalho "Organizar por horário". */
+@Composable
+fun BarraOrdenar(ordenando: Boolean, onAlternar: () -> Unit, onPorHorario: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(top = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            if (ordenando) "Use as setas para mudar a posição" else "Sua fila de tarefas",
+            fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Cores.Suave,
+            modifier = Modifier.weight(1f),
+        )
+        if (ordenando) {
+            Pilula("Por horário", destaque = false, onClick = onPorHorario)
+        }
+        Pilula(if (ordenando) "Pronto" else "Ordenar", destaque = ordenando, onClick = onAlternar)
+    }
+}
+
+@Composable
+private fun Pilula(texto: String, destaque: Boolean, onClick: () -> Unit) {
+    Text(
+        texto,
+        fontSize = 13.sp,
+        fontWeight = FontWeight.ExtraBold,
+        color = if (destaque) Color.White else Cores.Verde,
+        modifier = Modifier
+            .clip(RoundedCornerShape(18.dp))
+            .background(if (destaque) Cores.Verde else Color.Transparent)
+            .border(1.dp, Cores.Verde, RoundedCornerShape(18.dp))
+            .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 9.dp),
+    )
+}
+
+/** Número da posição na fila. */
+@Composable
+fun Numero(n: Int, apagado: Boolean = false) {
+    Box(
+        Modifier
+            .size(24.dp)
+            .clip(androidx.compose.foundation.shape.CircleShape)
+            .background(if (apagado) Cores.Vazio else Cores.TerracotaClaro),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            "$n", fontSize = 12.sp, fontWeight = FontWeight.ExtraBold,
+            color = if (apagado) Cores.Suave else Cores.TerracotaEscuro,
+        )
+    }
+}
+
+/** Setas de subir e descer na fila. */
+@Composable
+fun SetasOrdem(titulo: String, onSubir: (() -> Unit)?, onDescer: (() -> Unit)?) {
+    Column {
+        IconButton(onClick = { onSubir?.invoke() }, enabled = onSubir != null) {
+            Icon(
+                Icons.Default.KeyboardArrowUp, contentDescription = "Subir $titulo",
+                tint = if (onSubir != null) Cores.Verde else Cores.Borda,
+            )
+        }
+        IconButton(onClick = { onDescer?.invoke() }, enabled = onDescer != null) {
+            Icon(
+                Icons.Default.KeyboardArrowDown, contentDescription = "Descer $titulo",
+                tint = if (onDescer != null) Cores.Verde else Cores.Borda,
+            )
         }
     }
 }

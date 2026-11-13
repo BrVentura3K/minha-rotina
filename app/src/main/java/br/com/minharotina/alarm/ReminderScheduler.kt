@@ -8,14 +8,14 @@ import android.net.Uri
 import android.os.Build
 import android.util.Log
 import br.com.minharotina.data.AppData
-import br.com.minharotina.data.RoutineTask
+import br.com.minharotina.data.MAX_ALARMES
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
 
 /**
- * Mantém agendado o próximo alarme de cada tarefa.
- * Cada tarefa tem um único PendingIntent (identificado pela URI), então
+ * Mantém agendado o próximo disparo de cada alarme de cada tarefa.
+ * Cada alarme tem seu PendingIntent (identificado pela URI), então
  * agendar de novo substitui o anterior.
  */
 object ReminderScheduler {
@@ -37,9 +37,15 @@ object ReminderScheduler {
         val today = now.toLocalDate()
         val todayRecord = data.record(today)
 
+        // Cada tarefa tem até MAX_ALARMES "vagas" de alarme; vagas sem horário são canceladas.
         for (task in data.tasks) {
-            val next = nextOccurrence(task, now, todayRecord?.entries?.firstOrNull { it.taskId == task.id }?.done == true)
-            if (next == null) cancel(context, task.id) else schedule(context, task.id, task.title, next)
+            val feitaHoje = todayRecord?.entries?.firstOrNull { it.taskId == task.id }?.done == true
+            for (vaga in 0 until MAX_ALARMES) {
+                val minutos = task.alarms.getOrNull(vaga)
+                val next = minutos?.let { nextOccurrence(task.days, it, now, feitaHoje) }
+                if (next == null) cancelSlot(context, task.id, vaga) else schedule(context, task.id, vaga, task.title, next)
+            }
+            cancelSlot(context, task.id, null) // alarme no formato antigo (um só por tarefa)
         }
 
         // Temporizadores em andamento (também sobrevivem a reiniciar o celular).
@@ -51,40 +57,43 @@ object ReminderScheduler {
         }
 
         todayRecord?.entries?.filter { it.oneOff }?.forEach { e ->
-            val at = e.hour?.let { today.atTime(it, e.minute ?: 0) }
-            if (at != null && !e.done && at.isAfter(now)) {
-                schedule(context, e.taskId, e.title, at)
-            } else {
-                cancel(context, e.taskId)
+            for (vaga in 0 until MAX_ALARMES) {
+                val at = e.alarms.getOrNull(vaga)?.let { today.atTime(it / 60, it % 60) }
+                if (at != null && !e.done && at.isAfter(now)) {
+                    schedule(context, e.taskId, vaga, e.title, at)
+                } else {
+                    cancelSlot(context, e.taskId, vaga)
+                }
             }
+            cancelSlot(context, e.taskId, null)
         }
     }
 
-    private fun nextOccurrence(task: RoutineTask, now: LocalDateTime, doneToday: Boolean): LocalDateTime? {
-        val hour = task.hour ?: return null
-        if (task.days.isEmpty()) return null
+    private fun nextOccurrence(days: Set<Int>, minutos: Int, now: LocalDateTime, doneToday: Boolean): LocalDateTime? {
+        if (days.isEmpty()) return null
         val today: LocalDate = now.toLocalDate()
         for (offset in 0..7) {
             val date = today.plusDays(offset.toLong())
-            if (date.dayOfWeek.value !in task.days) continue
-            val at = date.atTime(hour, task.minute ?: 0)
+            if (date.dayOfWeek.value !in days) continue
+            val at = date.atTime(minutos / 60, minutos % 60)
             if (offset == 0 && (doneToday || !at.isAfter(now))) continue
             return at
         }
         return null
     }
 
-    private fun intentFor(context: Context, taskId: String, title: String? = null) =
+    /** [vaga] = qual alarme da tarefa; null é o formato antigo, de alarme único. */
+    private fun intentFor(context: Context, taskId: String, vaga: Int?, title: String? = null) =
         Intent(context, AlarmReceiver::class.java).apply {
             action = ACTION_REMINDER
-            data = Uri.parse("rotina://tarefa/$taskId")
+            data = Uri.parse("rotina://tarefa/$taskId" + (vaga?.let { "/$it" } ?: ""))
             putExtra(EXTRA_TASK_ID, taskId)
             if (title != null) putExtra(EXTRA_TITLE, title)
         }
 
-    private fun schedule(context: Context, taskId: String, title: String, at: LocalDateTime) {
+    private fun schedule(context: Context, taskId: String, vaga: Int, title: String, at: LocalDateTime) {
         val pi = PendingIntent.getBroadcast(
-            context, 0, intentFor(context, taskId, title),
+            context, 0, intentFor(context, taskId, vaga, title),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         setAlarm(context, at.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli(), pi)
@@ -159,9 +168,15 @@ object ReminderScheduler {
         am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + depoisMs, pi)
     }
 
+    /** Cancela todos os alarmes da tarefa. */
     fun cancel(context: Context, taskId: String) {
+        for (vaga in 0 until MAX_ALARMES) cancelSlot(context, taskId, vaga)
+        cancelSlot(context, taskId, null)
+    }
+
+    private fun cancelSlot(context: Context, taskId: String, vaga: Int?) {
         val pi = PendingIntent.getBroadcast(
-            context, 0, intentFor(context, taskId),
+            context, 0, intentFor(context, taskId, vaga),
             PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE,
         ) ?: return
         context.getSystemService(AlarmManager::class.java).cancel(pi)

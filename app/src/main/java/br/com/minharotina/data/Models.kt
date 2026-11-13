@@ -10,27 +10,31 @@ data class RoutineTask(
     val id: String,
     val title: String,
     val days: Set<Int>,
-    val hour: Int?,
-    val minute: Int?,
+    /** Horários dos alarmes, em minutos desde a meia-noite, em ordem. */
+    val alarms: List<Int>,
     val createdAt: Long,
     /** Duração do temporizador em minutos, ou null se a tarefa não tem temporizador. */
     val timerMinutes: Int? = null,
+    /** Posição na fila (0 = primeira). */
+    val order: Int = 0,
 )
 
 /** Uma tarefa dentro de um dia específico (foto do que era a tarefa naquele dia). */
 data class DayEntry(
     val taskId: String,
     val title: String,
-    val hour: Int?,
-    val minute: Int?,
+    val alarms: List<Int>,
     val done: Boolean,
     val note: String,
     val oneOff: Boolean,
     val timerMinutes: Int? = null,
     /** Quando o temporizador em andamento termina (epoch ms), ou null se parado. */
     val timerEndsAt: Long? = null,
+    /** Posição na fila do dia (0 = primeira). */
+    val order: Int = 0,
 ) {
-    val sortKey: Int get() = if (hour == null) 24 * 60 + 1 else hour * 60 + (minute ?: 0)
+    /** Para organizar por horário: o primeiro alarme; sem alarme vai para o fim. */
+    val sortKey: Int get() = alarms.minOrNull() ?: (24 * 60 + 1)
 }
 
 data class DayRecord(
@@ -54,8 +58,14 @@ data class AppData(
     fun record(date: LocalDate): DayRecord? = records[date.toString()]
 }
 
-fun formatTime(hour: Int?, minute: Int?): String? =
-    if (hour == null) null else "%02d:%02d".format(hour, minute ?: 0)
+const val MAX_ALARMES = 10
+
+fun formatMinutes(minutos: Int): String = "%02d:%02d".format(minutos / 60, minutos % 60)
+
+/** "08:00 · 12:30", ou null se não houver alarme. */
+fun List<Int>.formatAlarms(): String? = if (isEmpty()) null else sorted().joinToString(" · ") { formatMinutes(it) }
+
+val RoutineTask.sortKey: Int get() = alarms.minOrNull() ?: (24 * 60 + 1)
 
 val DAY_SHORT = listOf("S", "T", "Q", "Q", "S", "S", "D")
 val DAY_FULL = listOf("Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo")

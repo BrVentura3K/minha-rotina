@@ -43,8 +43,8 @@ class JsonStore(context: Context) {
                     put("id", t.id)
                     put("title", t.title)
                     put("days", JSONArray(t.days.sorted()))
-                    put("hour", t.hour ?: -1)
-                    put("minute", t.minute ?: -1)
+                    put("alarms", JSONArray(t.alarms))
+                    put("order", t.order)
                     put("createdAt", t.createdAt)
                     put("timerMinutes", t.timerMinutes ?: -1)
                 })
@@ -59,8 +59,8 @@ class JsonStore(context: Context) {
                             put(JSONObject().apply {
                                 put("taskId", e.taskId)
                                 put("title", e.title)
-                                put("hour", e.hour ?: -1)
-                                put("minute", e.minute ?: -1)
+                                put("alarms", JSONArray(e.alarms))
+                                put("order", e.order)
                                 put("done", e.done)
                                 put("note", e.note)
                                 put("oneOff", e.oneOff)
@@ -88,8 +88,8 @@ class JsonStore(context: Context) {
                     id = t.getString("id"),
                     title = t.getString("title"),
                     days = days,
-                    hour = t.optInt("hour", -1).takeIf { it >= 0 },
-                    minute = t.optInt("minute", -1).takeIf { it >= 0 },
+                    alarms = lerAlarmes(t),
+                    order = t.optInt("order", -1),
                     createdAt = t.optLong("createdAt", 0L),
                     timerMinutes = t.optInt("timerMinutes", -1).takeIf { it > 0 },
                 )
@@ -106,8 +106,8 @@ class JsonStore(context: Context) {
                     entries += DayEntry(
                         taskId = e.getString("taskId"),
                         title = e.getString("title"),
-                        hour = e.optInt("hour", -1).takeIf { it >= 0 },
-                        minute = e.optInt("minute", -1).takeIf { it >= 0 },
+                        alarms = lerAlarmes(e),
+                        order = e.optInt("order", -1),
                         done = e.optBoolean("done", false),
                         note = e.optString("note", ""),
                         oneOff = e.optBoolean("oneOff", false),
@@ -116,16 +116,32 @@ class JsonStore(context: Context) {
                     )
                 }
                 val date = r.getString("date")
-                records[date] = DayRecord(date, entries)
+                // Dados antigos não tinham posição: numera pela ordem do horário.
+                val ordenadas = if (entries.any { it.order < 0 }) {
+                    entries.sortedBy { it.sortKey }.mapIndexed { i, e -> e.copy(order = i) }
+                } else entries
+                records[date] = DayRecord(date, ordenadas)
             }
         }
+        val tarefas = if (tasks.any { it.order < 0 }) {
+            tasks.sortedWith(compareBy({ it.sortKey }, { it.title })).mapIndexed { i, t -> t.copy(order = i) }
+        } else tasks
         return AppData(
-            tasks = tasks,
+            tasks = tarefas,
             records = records,
             lastMaterialized = o.optString("lastMaterialized", "").ifBlank { null },
             favoriteQuotes = o.optJSONArray("favoriteQuotes").toStringList().toSet(),
             customQuotes = o.optJSONArray("customQuotes").toStringList(),
         )
+    }
+
+    /** Lê a lista de alarmes; versões antigas guardavam um só, em "hour" e "minute". */
+    private fun lerAlarmes(o: JSONObject): List<Int> {
+        o.optJSONArray("alarms")?.let { arr ->
+            return (0 until arr.length()).map { arr.getInt(it) }.filter { it in 0 until 24 * 60 }.distinct().sorted()
+        }
+        val h = o.optInt("hour", -1)
+        return if (h >= 0) listOf(h * 60 + o.optInt("minute", 0).coerceAtLeast(0)) else emptyList()
     }
 
     private fun JSONArray?.toStringList(): List<String> {

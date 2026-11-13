@@ -213,7 +213,7 @@ private fun ItemLegenda(cor: Color, texto: String) {
 @Composable
 private fun DetalheDia(data: AppData, dia: LocalDate) {
     val registro = data.record(dia)
-    val entradas = registro?.entries.orEmpty().sortedBy { it.sortKey }
+    val entradas = registro?.entries.orEmpty().sortedBy { it.order }
     Surface(shape = RoundedCornerShape(18.dp), color = Color.White, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {

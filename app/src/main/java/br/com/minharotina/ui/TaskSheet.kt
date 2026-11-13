@@ -20,6 +20,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.IconButton
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -52,7 +56,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import br.com.minharotina.data.Repository
-import br.com.minharotina.data.formatTime
+import br.com.minharotina.data.MAX_ALARMES
+import br.com.minharotina.data.formatMinutes
 import java.time.LocalDate
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -66,11 +71,7 @@ fun TaskSheet(folha: Folha, repo: Repository, onDismiss: () -> Unit) {
     var titulo by rememberSaveable { mutableStateOf(editando?.title ?: avulsa?.entry?.title ?: "") }
     var naRotina by rememberSaveable { mutableStateOf(editando != null || (folha as? Folha.Nova)?.naRotina == true) }
     var dias by remember { mutableStateOf(editando?.days ?: setOf(LocalDate.now().dayOfWeek.value)) }
-    val horaInicial = editando?.hour ?: avulsa?.entry?.hour
-    val minutoInicial = editando?.minute ?: avulsa?.entry?.minute
-    var lembrete by rememberSaveable { mutableStateOf(horaInicial != null) }
-    var hora by rememberSaveable { mutableIntStateOf(horaInicial ?: 8) }
-    var minuto by rememberSaveable { mutableIntStateOf(minutoInicial ?: 0) }
+    var alarmes by remember { mutableStateOf(editando?.alarms ?: avulsa?.entry?.alarms ?: emptyList()) }
     val timerInicial = editando?.timerMinutes ?: avulsa?.entry?.timerMinutes
     var temporizador by rememberSaveable { mutableStateOf(timerInicial != null) }
     var minutosTimer by rememberSaveable { mutableStateOf((timerInicial ?: 25).toString()) }
@@ -80,12 +81,13 @@ fun TaskSheet(folha: Folha, repo: Repository, onDismiss: () -> Unit) {
     val podeSalvar = titulo.isNotBlank() && (!naRotina || dias.isNotEmpty()) &&
         (!temporizador || minutosValidos != null)
 
-    fun escolherHorario() {
+    /** Abre o relógio. [trocar] = horário que está sendo alterado, ou null para adicionar um novo. */
+    fun escolherHorario(trocar: Int?) {
+        val inicial = trocar ?: alarmes.maxOrNull()?.let { (it + 60).coerceAtMost(23 * 60 + 59) } ?: (8 * 60)
         TimePickerDialog(context, { _, h, m ->
-            hora = h
-            minuto = m
-            lembrete = true
-        }, hora, minuto, true).show()
+            val novo = h * 60 + m
+            alarmes = ((alarmes - (trocar ?: -1)) + novo).distinct().sorted()
+        }, inicial / 60, inicial % 60, true).show()
     }
 
     ModalBottomSheet(
@@ -138,29 +140,51 @@ fun TaskSheet(folha: Folha, repo: Repository, onDismiss: () -> Unit) {
             }
 
             Surface(shape = RoundedCornerShape(16.dp), color = Color.White, modifier = Modifier.fillMaxWidth()) {
-                Row(
-                    Modifier.padding(14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Icon(Icons.Default.Notifications, contentDescription = null, tint = Cores.Verde)
-                    Column(Modifier.weight(1f)) {
-                        Text("Lembrete", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Cores.Tinta)
-                        if (lembrete) {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Icon(Icons.Default.Notifications, contentDescription = null, tint = Cores.Verde)
+                        Column(Modifier.weight(1f)) {
+                            Text("Alarmes", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Cores.Tinta)
                             Text(
-                                formatTime(hora, minuto) ?: "",
-                                fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, color = Cores.Verde,
-                                modifier = Modifier.clickable(onClickLabel = "Mudar horário") { escolherHorario() },
+                                when (alarmes.size) {
+                                    0 -> "Sem alarme"
+                                    1 -> "1 alarme. Toque no horário para mudar."
+                                    else -> "${alarmes.size} alarmes. Toque no horário para mudar."
+                                },
+                                fontSize = 13.sp, color = Cores.Suave,
                             )
-                        } else {
-                            Text("Sem alarme", fontSize = 13.sp, color = Cores.Suave)
                         }
                     }
-                    Switch(
-                        checked = lembrete,
-                        onCheckedChange = { ligado -> if (ligado) escolherHorario() else lembrete = false },
-                        colors = SwitchDefaults.colors(checkedTrackColor = Cores.Verde),
-                    )
+                    alarmes.forEach { m ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Cores.Fundo),
+                        ) {
+                            Text(
+                                formatMinutes(m),
+                                fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, color = Cores.Verde,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable(onClickLabel = "Mudar horário ${formatMinutes(m)}") { escolherHorario(m) }
+                                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                            )
+                            IconButton(onClick = { alarmes = alarmes - m }) {
+                                Icon(Icons.Default.Close, contentDescription = "Remover alarme das ${formatMinutes(m)}", tint = Cores.Suave)
+                            }
+                        }
+                    }
+                    if (alarmes.size < MAX_ALARMES) {
+                        OutlinedButton(onClick = { escolherHorario(null) }, modifier = Modifier.fillMaxWidth()) {
+                            Icon(Icons.Default.Add, contentDescription = null, tint = Cores.Verde, modifier = Modifier.size(18.dp))
+                            Text(
+                                if (alarmes.isEmpty()) "  Adicionar alarme" else "  Adicionar outro alarme",
+                                color = Cores.Verde, fontWeight = FontWeight.Bold,
+                            )
+                        }
+                    }
                 }
             }
 
@@ -220,16 +244,14 @@ fun TaskSheet(folha: Folha, repo: Repository, onDismiss: () -> Unit) {
 
             Button(
                 onClick = {
-                    val h = if (lembrete) hora else null
-                    val m = if (lembrete) minuto else null
                     val t = if (temporizador) minutosValidos else null
                     when {
                         editando != null -> repo.updateRoutine(
-                            editando.copy(title = titulo.trim(), days = dias, hour = h, minute = m, timerMinutes = t),
+                            editando.copy(title = titulo.trim(), days = dias, alarms = alarmes, timerMinutes = t),
                         )
-                        avulsa != null -> repo.updateOneOff(avulsa.date, avulsa.entry.taskId, titulo, h, m, t)
-                        naRotina -> repo.addRoutine(titulo, dias, h, m, t)
-                        else -> repo.addOneOff(titulo, h, m, t)
+                        avulsa != null -> repo.updateOneOff(avulsa.date, avulsa.entry.taskId, titulo, alarmes, t)
+                        naRotina -> repo.addRoutine(titulo, dias, alarmes, t)
+                        else -> repo.addOneOff(titulo, alarmes, t)
                     }
                     onDismiss()
                 },

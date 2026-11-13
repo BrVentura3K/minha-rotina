@@ -202,7 +202,12 @@ fun RotinaRoot(repo: Repository, resumeTick: Int) {
                 ) {
                     atualizacao?.let { CartaoAtualizacao(it, progresso, atualizar) }
                 }
-                Aba.ROTINAS -> RoutinesScreen(tasks = data.tasks, onEditar = { folha = Folha.Editar(it) })
+                Aba.ROTINAS -> RoutinesScreen(
+                    tasks = data.tasks,
+                    onEditar = { folha = Folha.Editar(it) },
+                    onMover = { id, delta -> repo.moveRoutine(id, delta) },
+                    onPorHorario = { repo.sortRoutinesByTime() },
+                )
                 Aba.HISTORICO -> HistoryScreen(data = data, hoje = hoje)
                 Aba.FRASES -> QuotesScreen(data = data, hoje = hoje, repo = repo, onVerificarAtualizacao = verificarAgora)
                 Aba.CORES -> ColorsScreen()
