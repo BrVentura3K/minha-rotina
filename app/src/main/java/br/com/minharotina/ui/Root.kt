@@ -233,7 +233,11 @@ fun AvisoLembretes(resumeTick: Int) {
         Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE ||
             context.getSystemService(android.app.NotificationManager::class.java).canUseFullScreenIntent()
     }
-    if (notificacoes && exatos && bateria && telaCheia) return
+    val audio = remember { context.getSystemService(android.media.AudioManager::class.java) }
+    var volumeZerado by remember(resumeTick) {
+        mutableStateOf(audio.getStreamVolume(android.media.AudioManager.STREAM_ALARM) == 0)
+    }
+    if (notificacoes && exatos && bateria && telaCheia && !volumeZerado) return
 
     Surface(shape = RoundedCornerShape(16.dp), color = Cores.TerracotaClaro, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -255,6 +259,22 @@ fun AvisoLembretes(resumeTick: Int) {
             if (!telaCheia && Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                 BotaoConfig("Permitir alarme em tela cheia") {
                     abrir(context, Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, Uri.parse("package:${context.packageName}")))
+                }
+            }
+            if (volumeZerado) {
+                Text("O volume de alarme do celular está no zero.", fontSize = 13.sp, color = Cores.Tinta)
+                BotaoConfig("Aumentar volume do alarme") {
+                    val max = audio.getStreamMaxVolume(android.media.AudioManager.STREAM_ALARM)
+                    try {
+                        audio.setStreamVolume(
+                            android.media.AudioManager.STREAM_ALARM,
+                            (max * 0.7f).toInt().coerceAtLeast(1),
+                            android.media.AudioManager.FLAG_SHOW_UI,
+                        )
+                    } catch (e: SecurityException) {
+                        // "Não perturbe" pode bloquear; o painel de volume abre do mesmo jeito.
+                    }
+                    volumeZerado = audio.getStreamVolume(android.media.AudioManager.STREAM_ALARM) == 0
                 }
             }
             if (!bateria) {

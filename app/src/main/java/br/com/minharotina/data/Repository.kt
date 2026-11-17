@@ -1,6 +1,7 @@
 package br.com.minharotina.data
 
 import android.content.Context
+import br.com.minharotina.alarm.AlarmSoundService
 import br.com.minharotina.alarm.ReminderScheduler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -100,11 +101,21 @@ class Repository(private val context: Context) {
         copy(entries = entries.map { if (it.taskId == taskId) change(it) else it })
 
     /** Ticar também para o temporizador, se estiver rodando. */
-    fun toggleDone(date: LocalDate, taskId: String) = mutate { d ->
+    fun toggleDone(date: LocalDate, taskId: String) {
+        AlarmSoundService.stop(taskId)
+        toggleDoneInternal(date, taskId)
+    }
+
+    private fun toggleDoneInternal(date: LocalDate, taskId: String) = mutate { d ->
         d.withRecord(date) { r -> r.mapEntry(taskId) { it.copy(done = !it.done, timerEndsAt = null) } }
     }
 
-    fun markDone(date: LocalDate, taskId: String) = mutate { d ->
+    fun markDone(date: LocalDate, taskId: String) {
+        AlarmSoundService.stop(taskId)
+        markDoneInternal(date, taskId)
+    }
+
+    private fun markDoneInternal(date: LocalDate, taskId: String) = mutate { d ->
         d.withRecord(date) { r -> r.mapEntry(taskId) { it.copy(done = true, timerEndsAt = null) } }
     }
 

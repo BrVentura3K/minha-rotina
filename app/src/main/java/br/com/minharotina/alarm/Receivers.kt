@@ -30,12 +30,11 @@ class AlarmReceiver : BroadcastReceiver() {
             } else {
                 Quotes.ofDay(today, data.customQuotes)
             }
-            Notifications.showReminder(
-                context, taskId, title, quote, tocar = true,
+            // O próprio app toca o som (para sozinho depois do tempo máximo).
+            AlarmSoundService.start(
+                context, taskId, title, quote,
                 chamada = if (ehTemporizador) "Tempo esgotado!" else "Está na hora!",
             )
-            // Para de tocar sozinho se ninguém responder.
-            ReminderScheduler.scheduleSilence(context, taskId, title, quote, Notifications.TEMPO_TOCANDO_MS)
         }
         // Agenda a próxima ocorrência.
         repo.persistNow()
@@ -83,5 +82,13 @@ class SilenceReceiver : BroadcastReceiver() {
             intent.getStringExtra(ReminderScheduler.EXTRA_QUOTE) ?: "",
             tocar = false,
         )
+    }
+}
+
+/** A notificação do alarme foi arrastada para o lado: para o som. */
+class StopAlarmReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        val taskId = intent.getStringExtra(ReminderScheduler.EXTRA_TASK_ID) ?: return
+        AlarmSoundService.stop(taskId)
     }
 }

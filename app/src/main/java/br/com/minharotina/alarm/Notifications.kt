@@ -27,6 +27,12 @@ object Notifications {
     /** Canal do alarme: som de despertador, vibração e tela cheia. */
     private const val CHANNEL_ALARME = "alarmes_tarefas"
 
+    /** Alarme cujo som é tocado pelo próprio app (canal sem som, só para aparecer na tela). */
+    private const val CHANNEL_TOCANDO = "alarme_tocando"
+
+    /** Como a notificação se comporta. */
+    enum class Modo { TOCANDO_PELO_APP, TOCANDO_PELA_NOTIFICACAO, SILENCIOSA }
+
     /** Tempo máximo tocando sem resposta. */
     const val TEMPO_TOCANDO_MS = 2 * 60_000L
 
@@ -36,6 +42,15 @@ object Notifications {
         nm.createNotificationChannel(
             NotificationChannel(CHANNEL_SILENCIOSO, "Lembretes (silenciosos)", NotificationManager.IMPORTANCE_HIGH).apply {
                 description = "Lembrete que fica na tela depois que o alarme para de tocar"
+            },
+        )
+
+        nm.createNotificationChannel(
+            NotificationChannel(CHANNEL_TOCANDO, "Alarme tocando", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "Mostra o alarme na tela enquanto o app toca o som"
+                setSound(null, null)
+                enableVibration(false)
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             },
         )
 
@@ -67,8 +82,8 @@ object Notifications {
             .activeNotifications.any { it.id == notificationId(taskId) }
 
     /**
-     * Mostra o lembrete. Com [tocar] = true, toca o som de alarme em repetição até a
-     * pessoa responder e abre a tela cheia se o celular estiver bloqueado.
+     * Mostra o lembrete na tela. Com [tocar] = true, usa o som do canal de notificação
+     * (plano B, quando o próprio app não consegue tocar).
      */
     fun showReminder(
         context: Context,
@@ -82,7 +97,25 @@ object Notifications {
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
             PackageManager.PERMISSION_GRANTED
         ) return
+        val modo = if (tocar) Modo.TOCANDO_PELA_NOTIFICACAO else Modo.SILENCIOSA
+        try {
+            NotificationManagerCompat.from(context).notify(
+                notificationId(taskId), buildReminder(context, taskId, title, quote, modo, chamada),
+            )
+        } catch (e: SecurityException) {
+            // Permissão de notificação revogada no meio do caminho.
+        }
+    }
 
+    fun buildReminder(
+        context: Context,
+        taskId: String,
+        title: String,
+        quote: String,
+        modo: Modo,
+        chamada: String,
+    ): Notification {
+        val tocando = modo != Modo.SILENCIOSA
         val open = PendingIntent.getActivity(
             context, 0,
             Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
@@ -102,25 +135,39 @@ object Notifications {
                 data = Uri.parse("rotina://adiar/$taskId")
                 putExtra(ReminderScheduler.EXTRA_TASK_ID, taskId)
                 putExtra(ReminderScheduler.EXTRA_TITLE, title)
-                putExtra(ReminderScheduler.EXTRA_QUOTE, chamada)
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
+        // Arrastar a notificação para o lado também para o som.
+        val arrastar = PendingIntent.getBroadcast(
+            context, 0,
+            Intent(context, StopAlarmReceiver::class.java).apply {
+                data = Uri.parse("rotina://parar/$taskId")
+                putExtra(ReminderScheduler.EXTRA_TASK_ID, taskId)
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val canal = when (modo) {
+            Modo.TOCANDO_PELO_APP -> CHANNEL_TOCANDO
+            Modo.TOCANDO_PELA_NOTIFICACAO -> CHANNEL_ALARME
+            Modo.SILENCIOSA -> CHANNEL_SILENCIOSO
+        }
 
-        val builder = NotificationCompat.Builder(context, if (tocar) CHANNEL_ALARME else CHANNEL_SILENCIOSO)
+        val builder = NotificationCompat.Builder(context, canal)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title)
             .setContentText("$chamada $quote")
             .setStyle(NotificationCompat.BigTextStyle().bigText("$chamada\n$quote"))
             .setPriority(NotificationCompat.PRIORITY_MAX)
-            .setCategory(if (tocar) NotificationCompat.CATEGORY_ALARM else NotificationCompat.CATEGORY_REMINDER)
+            .setCategory(if (tocando) NotificationCompat.CATEGORY_ALARM else NotificationCompat.CATEGORY_REMINDER)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setAutoCancel(true)
             .setContentIntent(open)
+            .setDeleteIntent(arrastar)
             .addAction(0, "Feito", done)
             .addAction(0, "Adiar 10 min", adiar)
 
-        if (tocar) {
+        if (tocando) {
             val telaCheia = PendingIntent.getActivity(
                 context, notificationId(taskId),
                 Intent(context, AlarmActivity::class.java).apply {
@@ -136,18 +183,18 @@ object Notifications {
         } else {
             builder.setSilent(true)
         }
+        if (modo == Modo.TOCANDO_PELO_APP) builder.setOngoing(true)
 
         val notification = builder.build()
-        if (tocar) notification.flags = notification.flags or Notification.FLAG_INSISTENT
-
-        try {
-            NotificationManagerCompat.from(context).notify(notificationId(taskId), notification)
-        } catch (e: SecurityException) {
-            // Permissão de notificação revogada no meio do caminho.
+        if (modo == Modo.TOCANDO_PELA_NOTIFICACAO) {
+            notification.flags = notification.flags or Notification.FLAG_INSISTENT
         }
+        return notification
     }
 
+    /** Some com o alarme da tarefa e para o som, se estiver tocando. */
     fun dismiss(context: Context, taskId: String) {
+        AlarmSoundService.stop(taskId)
         NotificationManagerCompat.from(context).cancel(notificationId(taskId))
     }
 }
