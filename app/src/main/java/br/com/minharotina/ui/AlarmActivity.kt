@@ -38,6 +38,13 @@ import java.time.format.DateTimeFormatter
 /** Tela cheia do alarme, mostrada por cima da tela de bloqueio. */
 class AlarmActivity : ComponentActivity() {
 
+    /** Outro alarme tocou com esta tela já aberta: mostra o novo. */
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        recreate()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {

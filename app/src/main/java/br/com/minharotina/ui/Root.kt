@@ -237,7 +237,8 @@ fun AvisoLembretes(resumeTick: Int) {
     var volumeZerado by remember(resumeTick) {
         mutableStateOf(audio.getStreamVolume(android.media.AudioManager.STREAM_ALARM) == 0)
     }
-    if (notificacoes && exatos && bateria && telaCheia && !volumeZerado) return
+    val porCima = remember(resumeTick) { Settings.canDrawOverlays(context) }
+    if (notificacoes && exatos && bateria && telaCheia && !volumeZerado && porCima) return
 
     Surface(shape = RoundedCornerShape(16.dp), color = Cores.TerracotaClaro, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -259,6 +260,15 @@ fun AvisoLembretes(resumeTick: Int) {
             if (!telaCheia && Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                 BotaoConfig("Permitir alarme em tela cheia") {
                     abrir(context, Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, Uri.parse("package:${context.packageName}")))
+                }
+            }
+            if (!porCima) {
+                Text(
+                    "Para o alarme abrir em tela cheia mesmo com o celular em uso:",
+                    fontSize = 13.sp, color = Cores.Tinta,
+                )
+                BotaoConfig("Permitir aparecer por cima") {
+                    abrir(context, Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}")))
                 }
             }
             if (volumeZerado) {

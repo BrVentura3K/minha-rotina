@@ -4,7 +4,10 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.graphics.PixelFormat
 import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
 import android.media.MediaPlayer
 import android.media.RingtoneManager
 import android.net.Uri
@@ -17,6 +20,11 @@ import android.os.Vibrator
 import android.os.VibratorManager
 import android.provider.Settings
 import android.util.Log
+import android.view.Gravity
+import android.view.View
+import android.view.WindowManager
+import br.com.minharotina.ui.AlarmActivity
+import kotlin.math.roundToInt
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 
@@ -33,6 +41,9 @@ class AlarmSoundService : Service() {
     private var vibrator: Vibrator? = null
     private val handler = Handler(Looper.getMainLooper())
     private var atual: Alarme? = null
+    private var volumeOriginal: Int? = null
+    private var foco: AudioFocusRequest? = null
+    private var overlay: View? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -43,6 +54,7 @@ class AlarmSoundService : Service() {
 
     override fun onDestroy() {
         pararSomEVibracao()
+        devolverVolume()
         if (instancia === this) instancia = null
         super.onDestroy()
     }
@@ -83,8 +95,11 @@ class AlarmSoundService : Service() {
         atual = novo
 
         pararSomEVibracao()
+        garantirVolume()
+        pedirFoco()
         tocarSom()
         vibrar()
+        abrirTelaCheia(novo)
         handler.postDelayed({ encerrar(deixarAviso = true) }, Notifications.TEMPO_TOCANDO_MS)
         return START_NOT_STICKY
     }
@@ -118,6 +133,91 @@ class AlarmSoundService : Service() {
         }
     }
 
+    /**
+     * O som sai no volume de ALARME, que o modo silencioso e o vibrar não cortam.
+     * Se esse volume estiver baixo ou no zero, sobe enquanto toca e depois volta.
+     */
+    private fun garantirVolume() {
+        val audio = getSystemService(AudioManager::class.java) ?: return
+        val max = audio.getStreamMaxVolume(AudioManager.STREAM_ALARM)
+        val minimo = (max * 0.7f).roundToInt().coerceAtLeast(1)
+        val agora = audio.getStreamVolume(AudioManager.STREAM_ALARM)
+        if (agora < minimo) {
+            try {
+                audio.setStreamVolume(AudioManager.STREAM_ALARM, minimo, 0)
+                if (volumeOriginal == null) volumeOriginal = agora
+            } catch (e: SecurityException) {
+                Log.w(TAG, "Não foi possível subir o volume do alarme", e)
+            }
+        }
+    }
+
+    private fun devolverVolume() {
+        val original = volumeOriginal ?: return
+        volumeOriginal = null
+        try {
+            getSystemService(AudioManager::class.java)?.setStreamVolume(AudioManager.STREAM_ALARM, original, 0)
+        } catch (_: SecurityException) {
+        }
+    }
+
+    /** Pausa música ou vídeo enquanto o alarme toca. */
+    private fun pedirFoco() {
+        val audio = getSystemService(AudioManager::class.java) ?: return
+        val pedido = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+            .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ALARM).build())
+            .build()
+        audio.requestAudioFocus(pedido)
+        foco = pedido
+    }
+
+    /**
+     * Abre a tela cheia do alarme também com o celular em uso. Com a tela bloqueada,
+     * a notificação já abre sozinha. Desbloqueado, o Android só deixa abrir se o app
+     * tiver a permissão "Aparecer por cima de outros apps"; uma janelinha de 1 ponto
+     * fica visível por um instante para o Android liberar a abertura.
+     */
+    private fun abrirTelaCheia(alarme: Alarme) {
+        if (!Settings.canDrawOverlays(this)) return
+        try {
+            val wm = getSystemService(WindowManager::class.java)
+            val v = View(this)
+            val params = WindowManager.LayoutParams(
+                1, 1,
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+                PixelFormat.TRANSLUCENT,
+            ).apply { gravity = Gravity.TOP or Gravity.START }
+            wm.addView(v, params)
+            overlay = v
+        } catch (e: Exception) {
+            Log.w(TAG, "Sem janela por cima", e)
+        }
+        try {
+            startActivity(
+                Intent(this, AlarmActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_USER_ACTION)
+                    putExtra(ReminderScheduler.EXTRA_TASK_ID, alarme.taskId)
+                    putExtra(ReminderScheduler.EXTRA_TITLE, alarme.title)
+                    putExtra(ReminderScheduler.EXTRA_QUOTE, alarme.quote)
+                    putExtra(Notifications.EXTRA_CHAMADA, alarme.chamada)
+                },
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "Não deu para abrir a tela cheia", e)
+        }
+        handler.postDelayed({ removerOverlay() }, 3_000)
+    }
+
+    private fun removerOverlay() {
+        val v = overlay ?: return
+        overlay = null
+        try {
+            getSystemService(WindowManager::class.java).removeView(v)
+        } catch (_: Exception) {
+        }
+    }
+
     private fun vibrar() {
         val v = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             getSystemService(VibratorManager::class.java)?.defaultVibrator
@@ -139,6 +239,9 @@ class AlarmSoundService : Service() {
 
     private fun pararSomEVibracao() {
         handler.removeCallbacksAndMessages(null)
+        removerOverlay()
+        foco?.let { getSystemService(AudioManager::class.java)?.abandonAudioFocusRequest(it) }
+        foco = null
         try {
             player?.stop()
         } catch (_: Exception) {
@@ -157,6 +260,7 @@ class AlarmSoundService : Service() {
         val alarme = atual
         atual = null
         pararSomEVibracao()
+        devolverVolume()
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         if (deixarAviso && alarme != null) {
             Notifications.showReminder(this, alarme.taskId, alarme.title, alarme.quote, tocar = false, chamada = alarme.chamada)
